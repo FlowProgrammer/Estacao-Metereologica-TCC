@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Estação meteorológica</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+<body>
+
+<header class="topo">
+  <div>
+    <h1>Estação meteorológica</h1>
+    <p class="sub" id="local">SENAI, Feira de Santana (BA)</p>
+  </div>
+  <div class="status">
+    <span class="ponto" id="ponto"></span>
+    <span id="status-texto">Conectando…</span>
+  </div>
+</header>
+
+<nav class="abas" id="abas">
+  <button class="ativa" data-aba="visao">Visão geral</button>
+  <button data-aba="historico">Histórico</button>
+  <button data-aba="previsao">Previsão</button>
+  <button data-aba="atividades">Atividades</button>
+</nav>
+
+<main>
+
+  <!-- ===================== VISÃO GERAL ===================== -->
+  <section id="visao" class="aba ativa">
+    <div class="leituras">
+      <div class="leitura"><span class="rotulo">Temperatura</span><strong id="v-temp">—</strong><span class="det" id="s-temp"></span></div>
+      <div class="leitura"><span class="rotulo">Umidade do ar</span><strong id="v-umid">—</strong><span class="det" id="s-umid"></span></div>
+      <div class="leitura"><span class="rotulo">Pressão ao nível do mar</span><strong id="v-pres">—</strong><span class="det" id="s-pres"></span></div>
+      <div class="leitura"><span class="rotulo">Ponto de orvalho</span><strong id="v-orv">—</strong><span class="det" id="s-orv"></span></div>
+      <div class="leitura"><span class="rotulo">Índice de calor</span><strong id="v-calor">—</strong><span class="det" id="s-calor"></span></div>
+    </div>
+
+    <div class="grade2">
+      <div class="painel">
+        <div class="cab">
+          <div>
+            <h2>Pressão nas últimas 24 horas</h2>
+            <p class="mudo">linha cheia: hoje, tracejada: mesmo horário de ontem</p>
+          </div>
+          <div class="dir">
+            <strong id="tend-titulo"></strong>
+            <p class="mudo" id="tend-sub"></p>
+          </div>
+        </div>
+        <div class="caixa-graf"><canvas id="graf-pressao"></canvas></div>
+      </div>
+
+      <div class="painel">
+        <h2>Chance de chuva nas próximas 3 horas</h2>
+        <p class="rotulo">Estimativa da estação</p>
+        <p class="grande est" id="est-cat">—</p>
+        <div class="escala">
+          <span id="esc-baixa">baixa</span><span id="esc-media">média</span><span id="esc-alta">alta</span>
+        </div>
+        <p class="mudo" id="est-motivo"></p>
+        <hr>
+        <p class="rotulo">Previsão da API (Open-Meteo)</p>
+        <p class="grande api" id="api-pct">—</p>
+        <div class="barra"><div id="api-barra"></div></div>
+        <p class="mudo" id="api-info"></p>
+      </div>
+    </div>
+
+    <div class="grade2">
+      <div class="painel">
+        <h2>Próximas 12 horas</h2>
+        <p class="mudo">probabilidade de chuva segundo a API</p>
+        <div class="caixa-graf baixa"><canvas id="graf-api"></canvas></div>
+      </div>
+      <div class="painel">
+        <h2>Alertas ativos</h2>
+        <ul id="alertas" class="alertas"></ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== HISTÓRICO ===================== -->
+  <section id="historico" class="aba">
+    <div class="barra-topo">
+      <div class="periodos" id="periodos">
+        <span class="rotulo">Período</span>
+        <button class="ativa" data-periodo="24h">24 h</button>
+        <button data-periodo="7d">7 dias</button>
+        <button data-periodo="tudo">Tudo</button>
+      </div>
+      <button class="contorno" id="btn-csv">Exportar CSV</button>
+    </div>
+    <div class="grade2">
+      <div>
+        <div class="painel"><h2>Temperatura (°C)</h2><div class="caixa-graf media"><canvas id="graf-temp"></canvas></div></div>
+        <div class="painel"><h2>Umidade do ar (%)</h2><div class="caixa-graf media"><canvas id="graf-umid"></canvas></div></div>
+        <div class="painel"><h2>Pressão ao nível do mar (hPa)</h2><div class="caixa-graf media"><canvas id="graf-pres"></canvas></div></div>
+      </div>
+      <div class="painel">
+        <h2>Resumo do período</h2>
+        <table class="tabela">
+          <thead><tr><th></th><th>mín.</th><th>média</th><th>máx.</th></tr></thead>
+          <tbody id="resumo"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== PREVISÃO ===================== -->
+  <section id="previsao" class="aba">
+    <div class="grade2 iguais">
+      <div class="painel">
+        <h2>Como a estação chegou nessa estimativa</h2>
+        <p class="mudo">Pontuação de 0 a 100: abaixo de 35 é baixa, de 35 a 69 é média, 70 ou mais é alta.</p>
+        <div id="fatores"></div>
+        <div class="total">
+          <h3>Pontuação total</h3>
+          <div class="regua">
+            <div class="faixa f1"></div><div class="faixa f2"></div><div class="faixa f3"></div>
+            <div class="marcador" id="marcador"></div>
+          </div>
+          <div class="legenda-regua"><span style="left:17.5%">baixa</span><span style="left:52.5%">média</span><span style="left:85%">alta</span></div>
+          <p class="grande est" id="total-pts">—</p>
+        </div>
+      </div>
+      <div class="painel">
+        <h2>Próximas 12 horas (API)</h2>
+        <p class="mudo">A estação estima só as próximas 3 horas. A API cobre horas e dias à frente.</p>
+        <div class="caixa-graf media"><canvas id="graf-api2"></canvas></div>
+        <h2 class="espaco">Acertos da previsão</h2>
+        <p class="mudo">Para registrar os acertos é preciso saber se choveu de fato. Isso depende de um
+        pluviômetro ou de uma estação do INMET próxima, previsto para a fase 2.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== ATIVIDADES ===================== -->
+  <section id="atividades" class="aba">
+    <div class="barra-topo">
+      <p class="mudo">Cada atividade tem regras próprias. O nível vale o pior resultado entre as regras.</p>
+      <div class="botoes">
+        <button class="contorno" id="btn-salvar-ativ">Salvar atividades padrão no Firebase</button>
+        <button class="cheio" id="btn-telegram">Enviar aviso agora (Telegram)</button>
+        <button class="contorno" id="btn-whats">Compartilhar no WhatsApp</button>
+      </div>
+    </div>
+    <details class="config-tg">
+      <summary>Configurar o envio pelo Telegram</summary>
+      <p class="mudo">1) No Telegram, converse com o @BotFather, use /newbot e copie o token. 2) Crie um grupo e
+      adicione o bot. 3) Mande uma mensagem no grupo e abra
+      https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates para ver o chat id (número negativo).
+      O token fica só neste navegador. Use um bot só da demonstração e revogue depois.</p>
+      <div class="campos">
+        <label>Token do bot<input type="password" id="tg-token" placeholder="123456:ABC..." autocomplete="off"></label>
+        <label>Chat id do grupo<input type="text" id="tg-chat" placeholder="-1001234567890" autocomplete="off"></label>
+        <button class="contorno" id="btn-tg-salvar">Salvar</button>
+      </div>
+      <label class="auto"><input type="checkbox" id="tg-auto"> Enviar automaticamente quando o nível de uma atividade mudar</label>
+    </details>
+    <p class="mudo" id="tg-status"></p>
+    <div class="cartoes" id="cards"></div>
+    <p class="aviso">Os limites das regras são exemplos e devem ser validados com um professor de educação
+    física e com um técnico agrícola. O vento vem da previsão da API, não de medição local. O aviso é apoio
+    à decisão e não substitui o julgamento do responsável nem alertas oficiais.</p>
+  </section>
+
+</main>
+
+<footer>Dados da estação via Firebase Realtime Database. Previsão externa: Open-Meteo.</footer>
+
+<script src="script.js"></script>
+</body>
+</html>
