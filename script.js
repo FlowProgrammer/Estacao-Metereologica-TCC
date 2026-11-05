@@ -10,6 +10,7 @@
    ===================================================================== */
 const CONFIG = {
   firebaseUrl: "https://estacao-metereologica-50584-default-rtdb.firebaseio.com/",
+  apiKey: "AIzaSyAKvbL4f6C-MEYAD_lGusr9OjvKryRQ7Ys",             // Web API Key do Firebase (Authentication). Vazio = perfil local, sem senha.
   estacao: "est01",
   lat: -12.27,            // Feira de Santana (BA), aproximado. Ajuste para o seu local.
   lon: -38.97,
@@ -25,9 +26,10 @@ const COR = { est: "#0B6E7F", estClara: "#7FA3AB", api: "#B7791F", alerta: "#A84
               chuva: "#3B6EA8", grade: "#E3EBE9", mudo: "#5B6E73" };
 const NIVEIS = ["Liberado", "Atenção", "Adiar"];
 
-/* Atividades e regras de exemplo. Os limites devem ser validados com
-   professores e técnicos da área. Se existir /atividades no Firebase,
-   ele tem prioridade sobre este padrão. */
+/* Atividades e regras predefinidas, por perfil. Os limites são exemplos e devem
+   ser validados com professores e técnicos da área. Um especialista pode
+   sobrescrever os critérios (salvos na conta dele, no Firebase).
+   Liberado = nenhum critério se aplica. Cada regra: variável, operador, limite, nível. */
 const ATIVIDADES_PADRAO = {
   educacao_fisica: {
     nome: "Educação física", perfil: "escola",
@@ -40,16 +42,43 @@ const ATIVIDADES_PADRAO = {
       { v: "indice_calor", op: ">=", lim: 39, nivel: "adiar" }
     ]
   },
+  evento_aberto: {
+    nome: "Eventos e aulas ao ar livre", perfil: "escola",
+    regras: [
+      { v: "chuva_api_3h", op: ">=", lim: 30, nivel: "atencao" },
+      { v: "chuva_api_3h", op: ">=", lim: 50, nivel: "adiar" },
+      { v: "chuva_estacao", op: ">=", lim: 35, nivel: "atencao" },
+      { v: "chuva_estacao", op: ">=", lim: 70, nivel: "adiar" },
+      { v: "indice_calor", op: ">=", lim: 32, nivel: "atencao" },
+      { v: "indice_calor", op: ">=", lim: 39, nivel: "adiar" }
+    ]
+  },
   irrigacao: {
     nome: "Irrigação", perfil: "agricola",
-    regras: [{ v: "chuva_api_6h", op: ">=", lim: 60, nivel: "adiar" }]
+    regras: [
+      { v: "chuva_api_6h", op: ">=", lim: 40, nivel: "atencao" },
+      { v: "chuva_api_6h", op: ">=", lim: 60, nivel: "adiar" }
+    ]
   },
   pulverizacao: {
     nome: "Pulverização", perfil: "agricola",
     regras: [
+      { v: "vento_api", op: ">=", lim: 8, nivel: "atencao" },
       { v: "vento_api", op: ">", lim: 10, nivel: "adiar" },
+      { v: "vento_api", op: "<", lim: 3, nivel: "atencao" },
+      { v: "umidade", op: "<", lim: 60, nivel: "atencao" },
       { v: "umidade", op: "<", lim: 55, nivel: "adiar" },
-      { v: "temperatura", op: ">", lim: 30, nivel: "adiar" }
+      { v: "temperatura", op: ">", lim: 28, nivel: "atencao" },
+      { v: "temperatura", op: ">", lim: 30, nivel: "adiar" },
+      { v: "chuva_api_3h", op: ">=", lim: 20, nivel: "atencao" },
+      { v: "chuva_api_3h", op: ">=", lim: 40, nivel: "adiar" }
+    ]
+  },
+  colheita: {
+    nome: "Plantio e colheita", perfil: "agricola",
+    regras: [
+      { v: "chuva_api_6h", op: ">=", lim: 40, nivel: "atencao" },
+      { v: "chuva_api_6h", op: ">=", lim: 60, nivel: "adiar" }
     ]
   }
 };
@@ -60,7 +89,8 @@ const VARIAVEIS = {
   chuva_estacao: ["Chance de chuva da estação (pontuação)", "pontos", 0],
   chuva_api_3h: ["Chance de chuva (API, 3 h)", "%", 0],
   chuva_api_6h: ["Chance de chuva (API, 6 h)", "%", 0],
-  vento_api: ["Vento previsto (API)", "km/h", 0]
+  vento_api: ["Vento previsto (API)", "km/h", 0],
+  queda_pressao_3h: ["Queda de pressão em 3 h", "hPa", 1]
 };
 
 /* ---------------------------- utilidades ---------------------------- */
@@ -171,7 +201,7 @@ function avaliarAtividade(ativ, vars) {
 }
 
 /* ------------------------------ dados ------------------------------ */
-const estado = { leituras: [], api: null, atividades: null, erro: null, periodo: "24h", apiErro: null };
+const estado = { leituras: [], api: null, conta: null, rascunho: {}, erro: null, periodo: "24h", apiErro: null };
 
 function gerarDemo() {
   const agora = Math.floor(Date.now() / 1000);
@@ -204,25 +234,6 @@ async function buscarLeituras() {
     .map(([k, v]) => ({ ts: Number(v.ts ?? k), t: Number(v.t), u: Number(v.u), pe: Number(v.pe), p: Number(v.p) }))
     .filter(l => isFinite(l.ts) && isFinite(l.p) && isFinite(l.t) && isFinite(l.u))
     .sort((a, b) => a.ts - b.ts);
-}
-
-async function buscarAtividades() {
-  if (DEMO) return ATIVIDADES_PADRAO;
-  try {
-    const r = await fetch(`${CONFIG.firebaseUrl}/atividades.json`);
-    const obj = r.ok ? await r.json() : null;
-    return obj && Object.keys(obj).length ? obj : ATIVIDADES_PADRAO;
-  } catch (e) { return ATIVIDADES_PADRAO; }
-}
-
-async function salvarAtividadesPadrao() {
-  if (DEMO) { alert("Modo demonstração: configure o Firebase para salvar."); return; }
-  const r = await fetch(`${CONFIG.firebaseUrl}/atividades.json`, {
-    method: "PUT", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(ATIVIDADES_PADRAO)
-  });
-  alert(r.ok ? "Atividades padrão salvas no Firebase." : "Não foi possível salvar (HTTP " + r.status + "). Confira as regras do banco.");
-  if (r.ok) { estado.atividades = await buscarAtividades(); renderAtividades(); }
 }
 
 async function buscarApi() {
@@ -263,7 +274,7 @@ function derivados() {
   const api = estado.api;
   const vars = {
     temperatura: ult.t, umidade: ult.u, indice_calor: ult.t < 27 ? ult.t : indiceCalor(ult.t, ult.u),
-    chuva_estacao: est.total,
+    chuva_estacao: est.total, queda_pressao_3h: trend ? -trend.p3 : null,
     chuva_api_3h: api ? api.chuva3h : null, chuva_api_6h: api ? api.chuva6h : null,
     vento_api: api ? api.ventoAgora : null
   };
@@ -450,7 +461,7 @@ function renderAlertas(d) {
     add("atencao", "Estação e API divergem", `A estação indica chuva ${d.est.cat.toLowerCase()}, mas a API prevê ${fmt(estado.api.chuva3h, 0)} %. Pode ser mudança local ou leitura atípica do sensor.`);
   if (estado.api && d.est.cat === "Baixa" && estado.api.chuva3h >= 60)
     add("atencao", "Estação e API divergem", `A API prevê ${fmt(estado.api.chuva3h, 0)} % de chuva, mas a estação indica chance baixa.`);
-  const ativ = estado.atividades || ATIVIDADES_PADRAO;
+  const ativ = atividadesAtivas();
   for (const a of Object.values(ativ)) {
     const r = avaliarAtividade(a, d.vars);
     if (r.nivel === 2) add("perigo", `${a.nome}: adiar`, r.motivos.filter(m => m.n === 2).map(m => m.texto).join("; "));
@@ -497,9 +508,10 @@ function renderPrevisao(d) {
 }
 
 function renderAtividades() {
+  texto("faixa-ativ", textoFaixaConta());
   const d = derivados();
   const caixa = $("cards"); caixa.innerHTML = "";
-  const ativ = estado.atividades || ATIVIDADES_PADRAO;
+  const ativ = atividadesAtivas();
   if (!d) { caixa.innerHTML = '<p class="mudo">Aguardando leituras para avaliar as atividades.</p>'; return; }
   for (const a of Object.values(ativ)) {
     const r = avaliarAtividade(a, d.vars);
@@ -520,7 +532,7 @@ function renderAtividades() {
 function mensagemAviso() {
   const d = derivados();
   if (!d) return "Estação meteorológica: sem leituras no momento.";
-  const ativ = estado.atividades || ATIVIDADES_PADRAO;
+  const ativ = atividadesAtivas();
   const linhas = [`Estação meteorológica, ${CONFIG.localNome} (${hhmm(Date.now())})`,
     `Temperatura ${fmt(d.ult.t)} °C, umidade ${fmt(d.ult.u, 0)} %, pressão ${fmt(d.ult.p)} hPa.`];
   for (const a of Object.values(ativ)) {
@@ -570,7 +582,7 @@ const niveisAnteriores = {};
 let ultimoAuto = 0;
 function verificarMudancas(d) {
   if (!d || !estado.api) return;   // só compara depois que a API respondeu
-  const ativ = estado.atividades || ATIVIDADES_PADRAO;
+  const ativ = atividadesAtivas();
   const mudou = [];
   for (const [id, a] of Object.entries(ativ)) {
     const n = avaliarAtividade(a, d.vars).nivel;
@@ -595,8 +607,411 @@ function exportarCsv() {
 function renderTudo() {
   const d = derivados();
   renderStatus(); renderLeituras(d); renderPressao(d); renderChuva(d);
-  renderApiGrafico(); renderAlertas(d); renderHistorico(); renderPrevisao(d); renderAtividades();
+  renderApiGrafico(); renderAlertas(d); renderHistorico(); renderPrevisao(d); renderAtividades(); renderConta();
   verificarMudancas(d);
+}
+
+/* ===================== Conta, perfil e regras =====================
+   Com apiKey configurada, a conta usa o Firebase Authentication (e-mail e senha,
+   pela API REST) e os dados ficam em /usuarios/{uid}. Sem apiKey, vale um perfil
+   local, só neste navegador e sem senha (modo demonstração).
+   Observação: nesta versão o tipo de conta "especialista" é escolhido pelo próprio
+   usuário e não é verificado. Em uso real, um administrador deveria aprovar. */
+const PERFIS = {
+  escola: "Atividades ao ar livre acadêmicas e educação física",
+  agricola: "Atividades agrícolas (pulverização, irrigação, colheita)"
+};
+const OPERADORES = [[">=", "maior ou igual a"], [">", "maior que"], ["<=", "menor ou igual a"], ["<", "menor que"]];
+const modoLocal = () => !CONFIG.apiKey || CONFIG.firebaseUrl.includes("SEU-PROJETO");
+const lista = x => Array.isArray(x) ? x.filter(Boolean) : (x ? Object.values(x) : []);
+const clonar = x => JSON.parse(JSON.stringify(x));
+
+const SESSAO = {
+  ler() { try { return JSON.parse(localStorage.getItem("sessao") || "null"); } catch (e) { return null; } },
+  gravar(s) { localStorage.setItem("sessao", JSON.stringify(s)); },
+  limpar() { localStorage.removeItem("sessao"); }
+};
+function lerContaLocal() {
+  try { return JSON.parse(localStorage.getItem("conta_local") || "null"); } catch (e) { return null; }
+}
+
+function normalizarRegras(r) {
+  const out = {};
+  for (const [id, a] of Object.entries(r || {})) {
+    if (!a) continue;
+    out[id] = {
+      nome: String(a.nome || id), perfil: PERFIS[a.perfil] ? a.perfil : "escola", nova: !!a.nova,
+      regras: lista(a.regras)
+        .map(x => ({ v: x.v, op: x.op, lim: Number(x.lim), nivel: x.nivel === "adiar" ? "adiar" : "atencao" }))
+        .filter(x => VARIAVEIS[x.v] && OPERADORES.some(o => o[0] === x.op) && Number.isFinite(x.lim))
+    };
+  }
+  return out;
+}
+function normalizarConta(c) {
+  const perfis = lista(c.perfis).filter(p => PERFIS[p]);
+  return {
+    uid: c.uid || "", email: c.email || "", nome: String(c.nome || ""),
+    papel: c.papel === "especialista" ? "especialista" : "usuario",
+    perfis: perfis.length ? perfis : ["escola"], regras: normalizarRegras(c.regras)
+  };
+}
+
+/* Atividades que valem para quem está usando: padrão do(s) perfil(is) + critérios do especialista. */
+function atividadesAtivas() {
+  const c = estado.conta;
+  const perfis = c ? c.perfis : Object.keys(PERFIS);
+  const out = {};
+  for (const [id, a] of Object.entries(ATIVIDADES_PADRAO)) if (perfis.includes(a.perfil)) out[id] = a;
+  if (c) for (const [id, a] of Object.entries(c.regras)) if (perfis.includes(a.perfil)) out[id] = a;
+  return out;
+}
+
+/* ----------------------------- autenticação ----------------------------- */
+function traduzErroAuth(cod) {
+  cod = cod || "";
+  if (cod.startsWith("EMAIL_EXISTS")) return "Já existe uma conta com esse e-mail.";
+  if (cod.startsWith("WEAK_PASSWORD")) return "A senha precisa ter pelo menos 6 caracteres.";
+  if (cod.startsWith("INVALID_EMAIL")) return "E-mail inválido.";
+  if (cod.startsWith("INVALID_LOGIN_CREDENTIALS") || cod.startsWith("INVALID_PASSWORD") || cod.startsWith("EMAIL_NOT_FOUND"))
+    return "E-mail ou senha incorretos.";
+  if (cod.startsWith("OPERATION_NOT_ALLOWED")) return "O login por e-mail e senha não está ativado no Firebase.";
+  if (cod.startsWith("TOO_MANY_ATTEMPTS")) return "Muitas tentativas. Tente de novo em alguns minutos.";
+  return cod || "Erro de autenticação.";
+}
+async function idCall(acao, corpo) {
+  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:${acao}?key=${CONFIG.apiKey}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...corpo, returnSecureToken: true })
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(traduzErroAuth(j.error && j.error.message));
+  return j;
+}
+function gravarSessaoDe(j, emailPadrao) {
+  const s = {
+    uid: j.localId || j.user_id, email: j.email || emailPadrao || "",
+    idToken: j.idToken || j.id_token, refreshToken: j.refreshToken || j.refresh_token,
+    exp: Date.now() + Number(j.expiresIn || j.expires_in || 3600) * 1000
+  };
+  SESSAO.gravar(s);
+  return s;
+}
+async function tokenAtual() {
+  if (modoLocal()) return null;
+  let s = SESSAO.ler();
+  if (!s) return null;
+  if (Date.now() > s.exp - 60000) {
+    const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${CONFIG.apiKey}`, {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(s.refreshToken)}`
+    });
+    const j = await r.json();
+    if (!r.ok) { SESSAO.limpar(); estado.conta = null; return null; }
+    s = gravarSessaoDe(j, s.email);
+  }
+  return s.idToken;
+}
+async function dbUsuario(metodo, caminho, corpo) {
+  const t = await tokenAtual();
+  const s = SESSAO.ler();
+  if (!t || !s) throw new Error("Sessão expirada. Entre novamente.");
+  const r = await fetch(`${CONFIG.firebaseUrl}/usuarios/${s.uid}${caminho}.json?auth=${encodeURIComponent(t)}`, {
+    method: metodo, headers: { "Content-Type": "application/json" },
+    body: corpo === undefined ? undefined : JSON.stringify(corpo)
+  });
+  if (!r.ok) throw new Error(r.status === 401 || r.status === 403
+    ? "Sem permissão no Firebase. Confira as regras do banco." : "Firebase respondeu HTTP " + r.status);
+  return r.json();
+}
+
+async function contaCriar({ nome, email, senha, papel, perfis }) {
+  if (!String(nome || "").trim()) throw new Error("Informe seu nome.");
+  if (!perfis || !perfis.length) throw new Error("Escolha pelo menos um perfil.");
+  papel = papel === "especialista" ? "especialista" : "usuario";
+  if (modoLocal()) {
+    const c = { uid: "local", email: "", nome: nome.trim(), papel, perfis, regras: {} };
+    localStorage.setItem("conta_local", JSON.stringify(c));
+    localStorage.setItem("conta_local_ativa", "1");
+    estado.conta = normalizarConta(c);
+    return;
+  }
+  if (!String(email || "").trim()) throw new Error("Informe o e-mail.");
+  const j = await idCall("signUp", { email, password: senha });
+  const s = gravarSessaoDe(j, email);
+  const dados = { nome: nome.trim(), email, papel, perfis, criadoEm: Date.now() };
+  try { await dbUsuario("PUT", "", dados); }
+  catch (e) { throw new Error("Conta criada, mas não foi possível salvar o perfil: " + e.message); }
+  estado.conta = normalizarConta({ uid: s.uid, ...dados });
+}
+async function carregarContaRemota() {
+  const s = SESSAO.ler();
+  if (!s) return;
+  const d = await dbUsuario("GET", "");
+  if (!d) {   // login ok, mas sem perfil salvo: cria um perfil básico
+    const dados = { nome: (s.email || "").split("@")[0], email: s.email, papel: "usuario", perfis: ["escola"], criadoEm: Date.now() };
+    await dbUsuario("PUT", "", dados);
+    estado.conta = normalizarConta({ uid: s.uid, ...dados });
+    return;
+  }
+  estado.conta = normalizarConta({ ...d, uid: s.uid, email: d.email || s.email });
+}
+async function contaEntrar(email, senha) {
+  const j = await idCall("signInWithPassword", { email, password: senha });
+  gravarSessaoDe(j, email);
+  await carregarContaRemota();
+}
+function contaContinuarLocal() {
+  const c = lerContaLocal();
+  if (!c) throw new Error("Nenhum perfil neste navegador. Crie uma conta.");
+  localStorage.setItem("conta_local_ativa", "1");
+  estado.conta = normalizarConta(c);
+}
+function contaSair() {
+  if (modoLocal()) localStorage.setItem("conta_local_ativa", "0"); else SESSAO.limpar();
+  estado.conta = null; estado.rascunho = {};
+}
+async function restaurarConta() {
+  try {
+    if (modoLocal()) {
+      const c = lerContaLocal();
+      if (c && localStorage.getItem("conta_local_ativa") === "1") estado.conta = normalizarConta(c);
+    } else if (SESSAO.ler()) await carregarContaRemota();
+  } catch (e) { SESSAO.limpar(); }
+  renderTudo(); renderRegras();
+}
+
+/* ------------------------- edição das regras (especialista) ------------------------- */
+function exigirEspecialista() {
+  if (!estado.conta || estado.conta.papel !== "especialista") throw new Error("Somente especialistas editam as regras.");
+}
+async function contaSalvarRegras() {
+  if (modoLocal()) {
+    const c = lerContaLocal() || {};
+    c.regras = estado.conta.regras;
+    localStorage.setItem("conta_local", JSON.stringify(c));
+    return;
+  }
+  await dbUsuario("PUT", "/regras", estado.conta.regras);
+}
+function validarAtividade(a) {
+  if (!String(a.nome || "").trim()) return "Dê um nome à atividade.";
+  for (const r of a.regras) {
+    if (!VARIAVEIS[r.v]) return "Escolha a variável de cada critério.";
+    if (r.lim === "" || r.lim === null || !Number.isFinite(Number(r.lim))) return "Informe um número válido em todos os limites.";
+  }
+  return null;
+}
+async function salvarAtividade(id, a) {
+  exigirEspecialista();
+  const erro = validarAtividade(a);
+  if (erro) throw new Error(erro);
+  estado.conta.regras[id] = {
+    nome: a.nome.trim(), perfil: a.perfil, nova: !(id in ATIVIDADES_PADRAO),
+    regras: a.regras.map(r => ({ v: r.v, op: r.op, lim: Number(r.lim), nivel: r.nivel === "adiar" ? "adiar" : "atencao" }))
+  };
+  await contaSalvarRegras();
+}
+async function restaurarAtividade(id) {     // volta ao padrão (ou exclui, se for atividade nova)
+  exigirEspecialista();
+  delete estado.conta.regras[id];
+  await contaSalvarRegras();
+}
+async function criarAtividade(nome, perfil) {
+  exigirEspecialista();
+  if (!String(nome || "").trim()) throw new Error("Dê um nome à atividade.");
+  const c = estado.conta;
+  if (!c.perfis.includes(perfil)) throw new Error("Escolha um dos seus perfis.");
+  const id = "x_" + Date.now().toString(36);
+  c.regras[id] = { nome: nome.trim(), perfil, nova: true, regras: [] };
+  await contaSalvarRegras();
+  return id;
+}
+
+/* ------------------------------ interface da conta ------------------------------ */
+function textoFaixaConta() {
+  const c = estado.conta;
+  if (!c) return "Você está como visitante e vê as regras padrão dos dois perfis. Crie uma conta para escolher o seu perfil.";
+  const perfis = c.perfis.map(p => PERFIS[p]).join(" e ");
+  return `Perfil: ${perfis}. ` + (c.papel === "especialista"
+    ? "Como especialista, você pode definir os critérios na aba Regras."
+    : "As regras são as padrão; só especialistas podem alterá-las.");
+}
+function renderConta() {
+  const c = estado.conta;
+  $("btn-conta").classList.toggle("oculto", !!c);
+  $("conta-info").classList.toggle("oculto", !c);
+  if (c) texto("conta-nome", `${c.nome || c.email}, ${c.papel === "especialista" ? "especialista" : "usuário"}`);
+}
+
+function el(tag, props, filhos) {
+  const e = document.createElement(tag);
+  Object.assign(e, props || {});
+  (filhos || []).forEach(f => e.appendChild(typeof f === "string" ? document.createTextNode(f) : f));
+  return e;
+}
+function statusRegras(msg, erro) {
+  const e = $("regras-status");
+  if (e) { e.textContent = msg; e.className = "mudo" + (erro ? " erro" : ""); }
+}
+function rascunhoDe(id) {
+  if (!estado.rascunho[id]) estado.rascunho[id] = clonar(atividadesAtivas()[id]);
+  return estado.rascunho[id];
+}
+function textoCriterio(r) {
+  const [nome, un] = VARIAVEIS[r.v] || [r.v, ""];
+  const op = OPERADORES.find(o => o[0] === r.op);
+  return `${nome} ${op ? op[1] : r.op} ${String(r.lim).replace(".", ",")} ${un}`;
+}
+function linhaEditavel(a, regra) {
+  const selVar = el("select");
+  Object.entries(VARIAVEIS).forEach(([k, [nome, un]]) => {
+    const o = el("option", { value: k, textContent: `${nome} (${un})` });
+    if (k === regra.v) o.selected = true;
+    selVar.appendChild(o);
+  });
+  const selOp = el("select");
+  OPERADORES.forEach(([k, nome]) => {
+    const o = el("option", { value: k, textContent: nome });
+    if (k === regra.op) o.selected = true;
+    selOp.appendChild(o);
+  });
+  const num = el("input", { type: "number", step: "any", value: String(regra.lim) });
+  const un = el("span", { className: "un", textContent: (VARIAVEIS[regra.v] || ["", ""])[1] });
+  selVar.addEventListener("change", () => { regra.v = selVar.value; un.textContent = VARIAVEIS[regra.v][1]; });
+  selOp.addEventListener("change", () => { regra.op = selOp.value; });
+  num.addEventListener("input", () => { regra.lim = num.value === "" ? "" : Number(num.value); });
+  const rem = el("button", { type: "button", className: "remover", textContent: "×", title: "Remover critério" });
+  rem.addEventListener("click", () => { a.regras.splice(a.regras.indexOf(regra), 1); renderRegras(); });
+  return el("div", { className: "criterio" }, [selVar, selOp, num, un, rem]);
+}
+function secaoRegras(a, nivel, titulo, edita) {
+  const box = el("div", { className: "secao n-" + nivel }, [el("h4", { textContent: titulo })]);
+  const itens = a.regras.filter(x => x.nivel === nivel);
+  if (!itens.length) box.appendChild(el("p", { className: "mudo", textContent: "Nenhum critério." }));
+  itens.forEach(regra => box.appendChild(edita ? linhaEditavel(a, regra)
+    : el("p", { className: "criterio-texto", textContent: textoCriterio(regra) })));
+  if (edita) {
+    const b = el("button", { type: "button", className: "contorno peq", textContent: "+ Adicionar critério" });
+    b.addEventListener("click", () => { a.regras.push({ v: "chuva_api_3h", op: ">=", lim: 50, nivel }); renderRegras(); });
+    box.appendChild(b);
+  }
+  return box;
+}
+function cartaoRegras(id, base, edita) {
+  const a = edita ? rascunhoDe(id) : base;
+  const personalizada = !!(estado.conta && estado.conta.regras[id]);
+  const selo = !(id in ATIVIDADES_PADRAO) ? "criada por especialista" : (personalizada ? "personalizada" : "padrão");
+  const topo = el("div", { className: "topo-cartao" }, [el("h3", { textContent: a.nome }), el("span", { className: "selo-neutro", textContent: selo })]);
+  const cartao = el("div", { className: "cartao-regras" }, [topo,
+    el("p", { className: "mudo", textContent: "Perfil: " + (PERFIS[a.perfil] || a.perfil) })]);
+  if (edita && !(id in ATIVIDADES_PADRAO)) {
+    const nome = el("input", { type: "text", value: a.nome, className: "nome-atividade" });
+    nome.addEventListener("input", () => { a.nome = nome.value; });
+    cartao.appendChild(nome);
+  }
+  cartao.appendChild(secaoRegras(a, "adiar", "Adiar quando qualquer um destes critérios ocorrer", edita));
+  cartao.appendChild(secaoRegras(a, "atencao", "Atenção quando qualquer um destes critérios ocorrer", edita));
+  cartao.appendChild(el("p", { className: "mudo", textContent: "Liberado: quando nenhum critério acima se aplica." }));
+  if (edita) {
+    const acoes = el("div", { className: "botoes" });
+    const salvar = el("button", { type: "button", className: "cheio peq", textContent: "Salvar regras" });
+    salvar.addEventListener("click", async () => {
+      try {
+        await salvarAtividade(id, a);
+        delete estado.rascunho[id];
+        statusRegras(`Regras de "${a.nome.trim()}" salvas.`, false);
+        renderRegras(); renderTudo();
+      } catch (e) { statusRegras("Não foi possível salvar: " + e.message, true); }
+    });
+    acoes.appendChild(salvar);
+    const descartar = el("button", { type: "button", className: "contorno peq", textContent: "Descartar alterações" });
+    descartar.addEventListener("click", () => { delete estado.rascunho[id]; statusRegras("Alterações descartadas.", false); renderRegras(); });
+    acoes.appendChild(descartar);
+    if (personalizada) {
+      const nova = !(id in ATIVIDADES_PADRAO);
+      const rest = el("button", { type: "button", className: "contorno peq", textContent: nova ? "Excluir atividade" : "Restaurar padrão" });
+      rest.addEventListener("click", async () => {
+        try {
+          await restaurarAtividade(id);
+          delete estado.rascunho[id];
+          statusRegras(nova ? "Atividade excluída." : "Critérios padrão restaurados.", false);
+          renderRegras(); renderTudo();
+        } catch (e) { statusRegras("Não foi possível concluir: " + e.message, true); }
+      });
+      acoes.appendChild(rest);
+    }
+    cartao.appendChild(acoes);
+  }
+  return cartao;
+}
+function formNovaAtividade() {
+  const sel = el("select");
+  estado.conta.perfis.forEach(p => sel.appendChild(el("option", { value: p, textContent: PERFIS[p] })));
+  const nome = el("input", { type: "text", placeholder: "Nome da nova atividade" });
+  const b = el("button", { type: "button", className: "contorno", textContent: "Criar atividade" });
+  b.addEventListener("click", async () => {
+    try {
+      await criarAtividade(nome.value, sel.value);
+      statusRegras("Atividade criada. Defina os critérios e salve.", false);
+      renderRegras(); renderTudo();
+    } catch (e) { statusRegras(e.message, true); }
+  });
+  return el("div", { className: "nova-atividade" }, [el("h3", { textContent: "Nova atividade" }), nome, sel, b]);
+}
+function renderRegras() {
+  const raiz = $("regras-conteudo");
+  if (!raiz) return;
+  raiz.innerHTML = "";
+  texto("faixa-regras", textoFaixaConta());
+  const edita = !!estado.conta && estado.conta.papel === "especialista";
+  Object.entries(atividadesAtivas()).forEach(([id, a]) => raiz.appendChild(cartaoRegras(id, a, edita)));
+  if (edita) raiz.appendChild(formNovaAtividade());
+}
+
+/* ------------------------------ janela de login ------------------------------ */
+let modoModal = "entrar";
+function definirModoModal(modo) {
+  modoModal = modo;
+  const local = modoLocal();
+  $("tab-entrar").classList.toggle("ativa", modo === "entrar");
+  $("tab-criar").classList.toggle("ativa", modo === "criar");
+  ["campo-nome", "campo-papel", "campo-perfis"].forEach(id => $(id).classList.toggle("oculto", modo !== "criar"));
+  ["campo-email", "campo-senha"].forEach(id => $(id).classList.toggle("oculto", local));
+  $("c-enviar").textContent = modo === "criar" ? "Criar conta" : (local ? "Continuar" : "Entrar");
+  const c = lerContaLocal();
+  $("aviso-modo").textContent = local
+    ? "Modo demonstração: o perfil fica só neste navegador e não usa senha." + (modo === "entrar" && c ? ` Perfil salvo: ${c.nome}.` : "")
+    : "";
+  $("c-erro").textContent = "";
+}
+async function enviarModal() {
+  const erro = $("c-erro");
+  erro.textContent = "";
+  $("c-enviar").disabled = true;
+  try {
+    if (modoModal === "criar") {
+      const papel = document.querySelector('input[name="c-papel"]:checked');
+      await contaCriar({
+        nome: $("c-nome").value, email: $("c-email").value.trim(), senha: $("c-senha").value,
+        papel: papel ? papel.value : "usuario",
+        perfis: Array.from(document.querySelectorAll('input[name="c-perfil"]:checked')).map(x => x.value)
+      });
+    } else if (modoLocal()) contaContinuarLocal();
+    else await contaEntrar($("c-email").value.trim(), $("c-senha").value);
+    $("dlg-conta").close();
+    estado.rascunho = {};
+    renderTudo(); renderRegras();
+  } catch (e) { erro.textContent = e.message; }
+  finally { $("c-enviar").disabled = false; }
+}
+function ligarConta() {
+  $("btn-conta").addEventListener("click", () => { definirModoModal("entrar"); $("dlg-conta").showModal(); });
+  $("btn-sair").addEventListener("click", () => { contaSair(); renderTudo(); renderRegras(); });
+  $("tab-entrar").addEventListener("click", () => definirModoModal("entrar"));
+  $("tab-criar").addEventListener("click", () => definirModoModal("criar"));
+  $("c-cancelar").addEventListener("click", () => $("dlg-conta").close());
+  $("form-conta").addEventListener("submit", e => { e.preventDefault(); enviarModal(); });
 }
 
 /* ------------------------------ ciclo de atualização ------------------------------ */
@@ -617,6 +1032,7 @@ function iniciar() {
     document.querySelectorAll("#abas button").forEach(x => x.classList.remove("ativa"));
     document.querySelectorAll(".aba").forEach(x => x.classList.remove("ativa"));
     b.classList.add("ativa"); $(b.dataset.aba).classList.add("ativa");
+    if (b.dataset.aba === "regras") renderRegras();
     window.dispatchEvent(new Event("resize"));
   }));
   document.querySelectorAll("#periodos button").forEach(b => b.addEventListener("click", () => {
@@ -624,7 +1040,6 @@ function iniciar() {
     b.classList.add("ativa"); estado.periodo = b.dataset.periodo; renderHistorico();
   }));
   $("btn-csv").addEventListener("click", exportarCsv);
-  $("btn-salvar-ativ").addEventListener("click", salvarAtividadesPadrao);
   $("tg-token").value = TG.token();
   $("tg-chat").value = TG.chat();
   $("tg-auto").checked = TG.auto();
@@ -642,7 +1057,8 @@ function iniciar() {
   });
   $("btn-whats").addEventListener("click", () =>
     window.open("https://wa.me/?text=" + encodeURIComponent(mensagemAviso()), "_blank"));
-  buscarAtividades().then(a => { estado.atividades = a; renderTudo(); });
+  ligarConta();
+  restaurarConta();
   atualizar(); atualizarApi();
   setInterval(atualizar, CONFIG.atualizarMs);
   setInterval(atualizarApi, CONFIG.atualizarApiMs);
@@ -652,5 +1068,5 @@ if (typeof document !== "undefined") {
   document.addEventListener("DOMContentLoaded", iniciar);
 }
 if (typeof module !== "undefined") {
-  module.exports = { limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
+  module.exports = { CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, restaurarAtividade, criarAtividade, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
 }

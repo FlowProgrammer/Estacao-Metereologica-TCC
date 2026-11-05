@@ -144,3 +144,44 @@ footer { color: var(--mudo); font-size: 13px; padding-bottom: 28px; }
 
 .alertas li.atencao { border-left-color: var(--api); }
 .alertas li.atencao strong { color: var(--api); }
+
+/* ---------- conta, regras e janela de login ---------- */
+.oculto { display: none !important; }
+.lado-dir { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
+.conta { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+#conta-info { display: flex; align-items: center; gap: 8px; }
+button.peq { padding: 4px 12px; font-size: 14px; }
+button.cheio.peq { border-radius: 6px; }
+
+.regras { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 18px; margin-top: 10px; }
+.cartao-regras { background: var(--branco); border: 1px solid var(--linha); padding: 14px 16px; }
+.selo-neutro { font-size: 13px; padding: 2px 10px; border-radius: 12px; background: var(--papel); color: var(--mudo); }
+.secao { margin: 10px 0; padding-left: 10px; border-left: 4px solid var(--linha); }
+.secao.n-adiar { border-left-color: var(--alerta); }
+.secao.n-atencao { border-left-color: var(--api); }
+.secao h4 { margin: 0 0 6px; font-size: 15px; }
+.criterio-texto { margin: 3px 0; font-size: 15px; }
+.criterio { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+.criterio select, .criterio input, .nome-atividade, .nova-atividade input, .nova-atividade select {
+  font: inherit; font-size: 14px; padding: 5px 6px; border: 1px solid var(--linha); background: #fff; max-width: 100%;
+}
+.criterio input[type="number"] { width: 90px; }
+.criterio .un { color: var(--mudo); font-size: 14px; min-width: 38px; }
+.criterio .remover { border: 0; background: none; color: var(--alerta); font-size: 20px; cursor: pointer; line-height: 1; }
+.nome-atividade { width: 100%; margin: 6px 0; }
+.cartao-regras .botoes { margin-top: 12px; }
+.nova-atividade { background: var(--branco); border: 1px dashed var(--linha); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; align-self: start; }
+
+dialog { border: 1px solid var(--linha); padding: 20px 22px; max-width: 460px; width: calc(100% - 28px); font-family: var(--sans); color: var(--tinta); }
+dialog::backdrop { background: rgba(18, 38, 45, 0.45); }
+#form-conta { display: flex; flex-direction: column; gap: 10px; }
+#form-conta label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; color: var(--mudo); }
+#form-conta input[type="text"], #form-conta input[type="email"], #form-conta input[type="password"] {
+  font: inherit; font-size: 16px; padding: 8px; border: 1px solid var(--linha);
+}
+#form-conta fieldset { border: 1px solid var(--linha); padding: 8px 12px; }
+#form-conta legend { font-size: 14px; color: var(--mudo); padding: 0 4px; }
+#form-conta label.opcao { flex-direction: row; align-items: flex-start; gap: 8px; color: var(--tinta); padding: 4px 0; }
+.abas-modal { display: flex; gap: 18px; border-bottom: 1px solid var(--linha); }
+.abas-modal button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 6px 0; font: inherit; font-size: 16px; color: var(--mudo); cursor: pointer; }
+.abas-modal button.ativa { color: var(--tinta); font-weight: 700; border-bottom-color: var(--est); }

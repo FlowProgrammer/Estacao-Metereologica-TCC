@@ -14,9 +14,18 @@
     <h1>Estação meteorológica</h1>
     <p class="sub" id="local">SENAI, Feira de Santana (BA)</p>
   </div>
-  <div class="status">
-    <span class="ponto" id="ponto"></span>
-    <span id="status-texto">Conectando…</span>
+  <div class="lado-dir">
+    <div class="status">
+      <span class="ponto" id="ponto"></span>
+      <span id="status-texto">Conectando…</span>
+    </div>
+    <div class="conta">
+      <button class="contorno peq" id="btn-conta">Entrar ou criar conta</button>
+      <span id="conta-info" class="oculto">
+        <span id="conta-nome"></span>
+        <button class="contorno peq" id="btn-sair">Sair</button>
+      </span>
+    </div>
   </div>
 </header>
 
@@ -25,6 +34,7 @@
   <button data-aba="historico">Histórico</button>
   <button data-aba="previsao">Previsão</button>
   <button data-aba="atividades">Atividades</button>
+  <button data-aba="regras">Regras</button>
 </nav>
 
 <main>
@@ -140,10 +150,10 @@
 
   <!-- ===================== ATIVIDADES ===================== -->
   <section id="atividades" class="aba">
+    <p class="mudo" id="faixa-ativ"></p>
     <div class="barra-topo">
       <p class="mudo">Cada atividade tem regras próprias. O nível vale o pior resultado entre as regras.</p>
       <div class="botoes">
-        <button class="contorno" id="btn-salvar-ativ">Salvar atividades padrão no Firebase</button>
         <button class="cheio" id="btn-telegram">Enviar aviso agora (Telegram)</button>
         <button class="contorno" id="btn-whats">Compartilhar no WhatsApp</button>
       </div>
@@ -168,7 +178,51 @@
     à decisão e não substitui o julgamento do responsável nem alertas oficiais.</p>
   </section>
 
+  <!-- ===================== REGRAS ===================== -->
+  <section id="regras" class="aba">
+    <p class="mudo" id="faixa-regras"></p>
+    <p class="mudo" id="regras-status"></p>
+    <p class="mudo">Para cada atividade, os critérios definem quando adiar e quando ter atenção.
+    Se nenhum critério se aplicar, a atividade fica liberada.</p>
+    <div class="regras" id="regras-conteudo"></div>
+    <p class="aviso">Os critérios padrão são exemplos. O especialista (professor, técnico agrícola,
+    agrônomo) deve validar ou ajustar os limites para a realidade do local. O sistema é apoio à
+    decisão e não substitui o julgamento do responsável nem alertas oficiais.</p>
+  </section>
+
 </main>
+
+<dialog id="dlg-conta">
+  <form id="form-conta">
+    <div class="abas-modal">
+      <button type="button" id="tab-entrar" class="ativa">Entrar</button>
+      <button type="button" id="tab-criar">Criar conta</button>
+    </div>
+    <p class="mudo" id="aviso-modo"></p>
+    <label id="campo-nome" class="oculto">Nome<input type="text" id="c-nome" autocomplete="name"></label>
+    <label id="campo-email">E-mail<input type="email" id="c-email" autocomplete="email"></label>
+    <label id="campo-senha">Senha<input type="password" id="c-senha" autocomplete="current-password"></label>
+    <fieldset id="campo-papel" class="oculto">
+      <legend>Tipo de conta</legend>
+      <label class="opcao"><input type="radio" name="c-papel" value="usuario" checked>
+        <span><strong>Usuário</strong><br><span class="mudo">usa as regras padrão do perfil</span></span></label>
+      <label class="opcao"><input type="radio" name="c-papel" value="especialista">
+        <span><strong>Especialista</strong><br><span class="mudo">professor, técnico agrícola ou agrônomo: pode definir os critérios de liberado, atenção e adiar. Nesta versão a escolha não é verificada.</span></span></label>
+    </fieldset>
+    <fieldset id="campo-perfis" class="oculto">
+      <legend>Perfil de atividades</legend>
+      <label class="opcao"><input type="checkbox" name="c-perfil" value="escola" checked>
+        <span><strong>Escola e educação física</strong><br><span class="mudo">atividades ao ar livre acadêmicas, educação física, eventos</span></span></label>
+      <label class="opcao"><input type="checkbox" name="c-perfil" value="agricola">
+        <span><strong>Agrícola</strong><br><span class="mudo">pulverização, irrigação, plantio e colheita</span></span></label>
+    </fieldset>
+    <p class="mudo erro" id="c-erro"></p>
+    <div class="botoes">
+      <button type="submit" class="cheio" id="c-enviar">Entrar</button>
+      <button type="button" class="contorno" id="c-cancelar">Cancelar</button>
+    </div>
+  </form>
+</dialog>
 
 <footer>Dados da estação via Firebase Realtime Database. Previsão externa: Open-Meteo.</footer>
 
