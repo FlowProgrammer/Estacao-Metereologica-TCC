@@ -6,6 +6,8 @@
   <title>Estação meteorológica</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body>
 
@@ -53,7 +55,7 @@
       <div class="painel">
         <div class="cab">
           <div>
-            <h2>Pressão nas últimas 24 horas</h2>
+            <h2 id="tit-pressao">Pressão nas últimas 24 horas</h2>
             <p class="mudo">linha cheia: hoje, tracejada: mesmo horário de ontem</p>
           </div>
           <div class="dir">
@@ -62,6 +64,8 @@
           </div>
         </div>
         <div class="caixa-graf"><canvas id="graf-pressao"></canvas></div>
+        <p class="mudo dica">Arraste para mover. Ctrl + roda do mouse (ou pinça no celular) amplia. Duplo clique restaura.</p>
+        <p class="mudo dica" id="nota-pressao"></p>
       </div>
 
       <div class="painel">
@@ -85,6 +89,7 @@
         <h2>Próximas 12 horas</h2>
         <p class="mudo">probabilidade de chuva segundo a API</p>
         <div class="caixa-graf baixa"><canvas id="graf-api"></canvas></div>
+        <p class="mudo" id="api-nota"></p>
       </div>
       <div class="painel">
         <h2>Alertas ativos</h2>
@@ -98,12 +103,21 @@
     <div class="barra-topo">
       <div class="periodos" id="periodos">
         <span class="rotulo">Período</span>
-        <button class="ativa" data-periodo="24h">24 h</button>
+        <button class="ativa" data-periodo="sessao" title="Última sequência contínua de leituras (no máximo 24 h)">Última sessão</button>
+        <button data-periodo="24h">24 h</button>
         <button data-periodo="7d">7 dias</button>
         <button data-periodo="tudo">Tudo</button>
       </div>
-      <button class="contorno" id="btn-csv">Exportar CSV</button>
+      <div class="botoes">
+        <button class="contorno peq" id="btn-zoom-mais" title="Ampliar os gráficos">Ampliar +</button>
+        <button class="contorno peq" id="btn-zoom-menos" title="Reduzir os gráficos">Reduzir −</button>
+        <button class="contorno peq" id="btn-zoom-reset" title="Voltar ao zoom original">Restaurar zoom</button>
+        <button class="contorno peq" id="btn-escala" title="Alterna entre a escala típica (sem os extremos) e a completa">Escala: típica</button>
+        <button class="contorno" id="btn-csv">Exportar CSV</button>
+      </div>
     </div>
+    <p class="mudo dica" id="nota-escala"></p>
+    <p class="mudo dica">Arraste um gráfico para movê-lo. Ctrl + roda do mouse (ou pinça no celular) amplia. Duplo clique restaura.</p>
     <div class="grade2">
       <div>
         <div class="painel"><h2>Temperatura (°C)</h2><div class="caixa-graf media"><canvas id="graf-temp"></canvas></div></div>
@@ -135,12 +149,14 @@
           </div>
           <div class="legenda-regua"><span style="left:17.5%">baixa</span><span style="left:52.5%">média</span><span style="left:85%">alta</span></div>
           <p class="grande est" id="total-pts">—</p>
+          <p class="mudo" id="total-nota"></p>
         </div>
       </div>
       <div class="painel">
         <h2>Próximas 12 horas (API)</h2>
         <p class="mudo">A estação estima só as próximas 3 horas. A API cobre horas e dias à frente.</p>
         <div class="caixa-graf media"><canvas id="graf-api2"></canvas></div>
+        <p class="mudo" id="api-nota2"></p>
         <h2 class="espaco">Acertos da previsão</h2>
         <p class="mudo">Para registrar os acertos é preciso saber se choveu de fato. Isso depende de um
         pluviômetro ou de uma estação do INMET próxima, previsto para a fase 2.</p>

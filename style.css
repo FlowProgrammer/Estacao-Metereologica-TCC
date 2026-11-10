@@ -59,7 +59,7 @@ main { padding-top: 18px; padding-bottom: 20px; }
 .dir strong { font-family: var(--serifa); font-size: 21px; }
 .dir strong.alerta, #tend-titulo.alerta { color: var(--alerta); }
 .caixa-graf { position: relative; height: 330px; background: var(--branco); border: 1px solid var(--linha); padding: 8px; }
-.caixa-graf.media { height: 220px; }
+.caixa-graf.media { height: 270px; }
 .caixa-graf.baixa { height: 170px; }
 hr { border: 0; border-top: 1px solid var(--linha); margin: 14px 0; }
 
@@ -185,3 +185,7 @@ dialog::backdrop { background: rgba(18, 38, 45, 0.45); }
 .abas-modal { display: flex; gap: 18px; border-bottom: 1px solid var(--linha); }
 .abas-modal button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 6px 0; font: inherit; font-size: 16px; color: var(--mudo); cursor: pointer; }
 .abas-modal button.ativa { color: var(--tinta); font-weight: 700; border-bottom-color: var(--est); }
+
+.dica { font-size: 13px; margin-top: 6px; }
+.caixa-graf canvas { cursor: grab; }
+.caixa-graf canvas:active { cursor: grabbing; }

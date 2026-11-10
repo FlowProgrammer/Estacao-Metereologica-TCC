@@ -20,7 +20,7 @@ const CONFIG = {
   limiteLeituras: 3000,
   localNome: "SENAI, Feira de Santana (BA)"
 };
-const DEMO = CONFIG.firebaseUrl.includes("SEU-PROJETO");
+const emDemo = () => CONFIG.firebaseUrl.includes("SEU-PROJETO");
 
 const COR = { est: "#0B6E7F", estClara: "#7FA3AB", api: "#B7791F", alerta: "#A8402B",
               chuva: "#3B6EA8", grade: "#E3EBE9", mudo: "#5B6E73" };
@@ -98,6 +98,7 @@ const fmt = (n, d = 1) => (n == null || isNaN(n)) ? "—" : n.toFixed(d).replace
 const sgn = (n, d = 1) => (n == null || isNaN(n)) ? "—" : (n >= 0 ? "+" : "−") + Math.abs(n).toFixed(d).replace(".", ",");
 const clip = (v, a, b) => Math.max(a, Math.min(b, v));
 const hhmm = ms => new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+const dataHoraCompleta = ms => new Date(ms).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
 const dataHoraCurta = ms => new Date(ms).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 /* ----------------------------- cálculos ----------------------------- */
@@ -135,12 +136,15 @@ function tendencia(leituras) {
     for (let i = 0; i < x.length; i++) { num += (x[i] - mx) * (y[i] - my); den += (x[i] - mx) ** 2; }
     return den ? num / den : 0;
   };
-  return { p3: inclinacao("p") * 3, u3: inclinacao("u") * 3, delta: j[j.length - 1].p - j[0].p,
+  return { p3: inclinacao("p") * 3, u3: inclinacao("u") * 3, delta: j[j.length - 1].p - j[0].p, deltaU: j[j.length - 1].u - j[0].u,
            horas: (j[j.length - 1].ts - j[0].ts) / 3600 };
 }
 
 /* Com menos de 3 h de dados, mostra a variação real da janela (ex.: "9,9 hPa em 17 min")
    em vez de extrapolar para 3 h. O ritmo equivalente a 3 h continua valendo para a pontuação. */
+function ritmoTexto(p3) {     // evita mostrar valores absurdos quando a janela de dados é curta
+  return Math.abs(p3) > 20 ? "mais de 20 hPa em 3 h" : `${sgn(p3)} hPa em 3 h`;
+}
 function variacaoPressao(trend) {
   if (trend.horas < 2.9) return { cai: trend.delta < 0, valor: Math.abs(trend.delta), janela: `${Math.max(1, Math.round(trend.horas * 60))} min`, parcial: true };
   return { cai: trend.p3 < 0, valor: Math.abs(trend.p3), janela: "3 h", parcial: false };
@@ -162,7 +166,7 @@ function estimarChuva(v) {                 // v: { p3, anom, u, spread, hora }
   const f = [
     { nome: "Tendência da pressão",
       det: v.p3 == null ? "sem dados suficientes" : (v.horas < 2.9
-        ? `${sgn(v.delta)} hPa em ${Math.max(1, Math.round(v.horas * 60))} min (ritmo equivalente a ${sgn(v.p3)} hPa em 3 h)`
+        ? `${sgn(v.delta)} hPa em ${Math.max(1, Math.round(v.horas * 60))} min (ritmo equivalente a ${ritmoTexto(v.p3)})`
         : `${sgn(v.p3)} hPa em 3 h`),
       pts: v.p3 == null ? 0 : Math.round(clip(11 * Math.max(0, -v.p3), 0, 40)) },
     { nome: "Pressão abaixo do normal para a hora",
@@ -177,7 +181,7 @@ function estimarChuva(v) {                 // v: { p3, anom, u, spread, hora }
   ];
   const total = Math.min(100, f.reduce((s, x) => s + x.pts, 0));
   const cat = total < 35 ? "Baixa" : (total < 70 ? "Média" : "Alta");
-  return { fatores: f, total, cat };
+  return { fatores: f, total, cat, parcial: v.p3 == null };
 }
 
 function avaliarAtividade(ativ, vars) {
@@ -201,7 +205,7 @@ function avaliarAtividade(ativ, vars) {
 }
 
 /* ------------------------------ dados ------------------------------ */
-const estado = { leituras: [], api: null, conta: null, rascunho: {}, erro: null, periodo: "24h", apiErro: null };
+const estado = { leituras: [], api: null, conta: null, rascunho: {}, descartadas: 0, erro: null, periodo: "sessao", escalaTotal: false, apiErro: null };
 
 function gerarDemo() {
   const agora = Math.floor(Date.now() / 1000);
@@ -223,17 +227,24 @@ function gerarDemo() {
   return out;
 }
 
+/* Valores fisicamente impossíveis (sensor com defeito, comando de teste extremo) ficam
+   fora dos gráficos e dos cálculos, e o dashboard avisa quantos foram ignorados. */
+const leituraValida = l => l.p >= 870 && l.p <= 1090 && l.t >= -20 && l.t <= 60 && l.u >= 0 && l.u <= 100;
+
 async function buscarLeituras() {
-  if (DEMO) return gerarDemo();
+  if (emDemo()) { estado.descartadas = 0; return gerarDemo(); }
   const q = `orderBy=${encodeURIComponent('"$key"')}&limitToLast=${CONFIG.limiteLeituras}`;
   const r = await fetch(`${CONFIG.firebaseUrl}/estacoes/${CONFIG.estacao}/leituras.json?${q}`);
   if (!r.ok) throw new Error("Firebase respondeu HTTP " + r.status);
   const obj = await r.json();
-  if (!obj) return [];
-  return Object.entries(obj)
+  if (!obj) { estado.descartadas = 0; return []; }
+  const todas = Object.entries(obj)
     .map(([k, v]) => ({ ts: Number(v.ts ?? k), t: Number(v.t), u: Number(v.u), pe: Number(v.pe), p: Number(v.p) }))
     .filter(l => isFinite(l.ts) && isFinite(l.p) && isFinite(l.t) && isFinite(l.u))
     .sort((a, b) => a.ts - b.ts);
+  const validas = todas.filter(leituraValida);
+  estado.descartadas = todas.length - validas.length;
+  return validas;
 }
 
 async function buscarApi() {
@@ -284,53 +295,127 @@ function derivados() {
 /* ------------------------------ gráficos ------------------------------ */
 const graficos = {};
 function conjunto(label, pontos, cor, tracejado) {
-  return { label, data: pontos, borderColor: cor, borderWidth: tracejado ? 1.6 : 2.4, borderDash: tracejado ? [5, 4] : [],
-           pointRadius: pontos.length < 40 ? 3 : 0, tension: 0.2, fill: false };
+  return { label, data: pontos, borderColor: cor, borderWidth: tracejado ? 1.4 : 1.8, borderDash: tracejado ? [5, 4] : [],
+           pointRadius: pontos.length < 40 ? 3 : 0, tension: 0.2, fill: false, spanGaps: false };
 }
-const decs = {};
+const decs = {}, foras = {};
 function rotuloX(ms, faixa) {
   const d = new Date(ms);
   if (faixa <= 36 * 3600 * 1000) return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
   return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
-function limitesY(datasets, spanMin) {   // eixo ajustado aos dados, com altura mínima
-  const ys = [];
-  datasets.forEach(d => d.data.forEach(p => ys.push(p.y)));
-  if (!ys.length) return { min: undefined, max: undefined, dec: 1 };
-  let lo = Math.min(...ys), hi = Math.max(...ys);
-  if (hi - lo < spanMin) { const c = (lo + hi) / 2; lo = c - spanMin / 2; hi = c + spanMin / 2; }
-  const pad = (hi - lo) * 0.08;
-  return { min: lo - pad, max: hi + pad, dec: (hi - lo) < 5 ? 1 : 0 };
+function quantil(arr, q) {
+  const a = arr.slice().sort((x, y) => x - y), i = (a.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i);
+  return a[lo] + (a[hi] - a[lo]) * (i - lo);
 }
+function degrau(faixa) {            // passo "redondo" (1, 2, 5, 10...) para os rótulos do eixo
+  const bruto = faixa / 5, mag = Math.pow(10, Math.floor(Math.log10(bruto))), f = bruto / mag;
+  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * mag;
+}
+/* Eixo vertical calculado só com os pontos visíveis. No modo "típica", leituras extremas
+   (abaixo do 2º ou acima do 98º percentil) ficam fora do quadro para não achatar as linhas. */
+function limitesY(datasets, spanMin, xmin, xmax, modo) {
+  const ys = [];
+  let ultimo = null, ultimoX = -Infinity;
+  datasets.forEach(d => d.data.forEach(p => {
+    if (p.y == null) return;
+    if (xmin !== undefined && (p.x < xmin || p.x > xmax)) return;
+    ys.push(p.y);
+    if (p.x > ultimoX) { ultimoX = p.x; ultimo = p.y; }
+  }));
+  if (!ys.length) return { min: undefined, max: undefined, passo: 1, dec: 1, fora: 0 };
+  let lo = Math.min(...ys), hi = Math.max(...ys);
+  if (modo === "tipica" && ys.length >= 30) {
+    lo = Math.min(quantil(ys, 0.02), ultimo); hi = Math.max(quantil(ys, 0.98), ultimo);
+  }
+  if (hi - lo < spanMin) { const c = (lo + hi) / 2; lo = c - spanMin / 2; hi = c + spanMin / 2; }
+  if (hi - lo < 1e-9) { lo -= 0.5; hi += 0.5; }
+  const pad = (hi - lo) * 0.06, passo = degrau(hi - lo + 2 * pad);
+  const min = Math.floor((lo - pad) / passo) * passo, max = Math.ceil((hi + pad) / passo) * passo;
+  return { min, max, passo, dec: passo >= 1 ? 0 : (passo >= 0.1 ? 1 : 2), fora: ys.filter(y => y < min || y > max).length };
+}
+const zoomAtivo = g => typeof g.isZoomedOrPanned === "function" && g.isZoomedOrPanned();
+const modoEscala = () => estado.escalaTotal ? "total" : "tipica";
+
+function ajustarY(g) {              // depois de mover ou ampliar, reajusta o eixo vertical ao que está visível
+  const sx = g.scales && g.scales.x;
+  if (!sx) return;
+  const ly = limitesY(g.data.datasets, g._spanMin || 0, sx.min, sx.max, modoEscala());
+  if (ly.min === undefined) return;
+  g.options.scales.y.min = ly.min; g.options.scales.y.max = ly.max; g.options.scales.y.ticks.stepSize = ly.passo;
+  decs[g._id] = ly.dec;
+  g.update("none");
+}
+
+/* Gráficos de linha: arraste para mover, Ctrl + roda do mouse (ou pinça no celular) para
+   ampliar, duplo clique para restaurar. Se o usuário mexeu no gráfico, as atualizações
+   automáticas não desfazem o zoom. */
 function desenharLinha(id, datasets, xmin, xmax, spanMin = 0) {
   const el = document.getElementById(id);
   if (!el || typeof Chart === "undefined") return;
   if (xmax - xmin < 60000) xmax = xmin + 60000;
-  const ly = limitesY(datasets, spanMin);
-  decs[id] = ly.dec;
+  const ly = limitesY(datasets, spanMin, xmin, xmax, modoEscala());
+  decs[id] = ly.dec; foras[id] = ly.fora;
   if (graficos[id]) {
     const g = graficos[id];
+    g._spanMin = spanMin;
     g.data.datasets = datasets;
-    g.options.scales.x.min = xmin; g.options.scales.x.max = xmax;
-    g.options.scales.y.min = ly.min; g.options.scales.y.max = ly.max;
+    g.options.plugins.zoom.limits.x = { min: xmin, max: xmax, minRange: 60000 };
+    if (!zoomAtivo(g)) {
+      g.options.scales.x.min = xmin; g.options.scales.x.max = xmax;
+      g.options.scales.y.min = ly.min; g.options.scales.y.max = ly.max; g.options.scales.y.ticks.stepSize = ly.passo;
+    }
     g.update("none");
     return;
   }
-  graficos[id] = new Chart(el, {
+  const g = new Chart(el, {
     type: "line", data: { datasets },
     options: {
       animation: false, responsive: true, maintainAspectRatio: false, parsing: false,
       interaction: { mode: "nearest", intersect: false },
-      plugins: { legend: { display: datasets.length > 1, labels: { boxWidth: 12 } } },
+      plugins: {
+        legend: { display: datasets.length > 1, labels: { boxWidth: 12 } },
+        tooltip: { callbacks: {
+          title: it => it.length ? dataHoraCompleta(it[0].parsed.x) : "",
+          label: c => `${c.dataset.label}: ${fmt(c.parsed.y, 2)}`
+        } },
+        zoom: {
+          pan: { enabled: true, mode: "x", onPanComplete: ({ chart }) => ajustarY(chart) },
+          zoom: { wheel: { enabled: true, modifierKey: "ctrl" }, pinch: { enabled: true }, mode: "xy",
+                  onZoomComplete: ({ chart }) => ajustarY(chart) },
+          limits: { x: { min: xmin, max: xmax, minRange: 60000 } }
+        }
+      },
       scales: {
         x: { type: "linear", min: xmin, max: xmax, grid: { color: COR.grade },
              ticks: { maxTicksLimit: 8, callback: function (v) { return rotuloX(v, this.max - this.min); } } },
         y: { min: ly.min, max: ly.max, grid: { color: COR.grade },
-             ticks: { callback: v => fmt(v, decs[id] ?? 0) } }
+             ticks: { stepSize: ly.passo, callback: v => fmt(v, decs[id] ?? 0) } }
       }
     }
   });
+  g._id = id; g._spanMin = spanMin;
+  graficos[id] = g;
+  el.addEventListener("dblclick", () => resetarZoom());
 }
+function zoomGraficos(fator) {
+  Object.values(graficos).forEach(g => {
+    if (g.config.type === "line" && typeof g.zoom === "function") { g.zoom(fator); ajustarY(g); }
+  });
+}
+function resetarZoom() {
+  Object.values(graficos).forEach(g => { if (typeof g.resetZoom === "function") g.resetZoom(); });
+  renderTudo();
+}
+const rotulosBarras = {      // escreve o valor acima de cada barra (inclusive 0)
+  id: "rotulosBarras",
+  afterDatasetsDraw(chart) {
+    const ctx = chart.ctx, meta = chart.getDatasetMeta(0), dados = chart.data.datasets[0].data;
+    ctx.save(); ctx.fillStyle = "#12262D"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+    meta.data.forEach((barra, i) => ctx.fillText(String(Math.round(dados[i])), barra.x, barra.y - 4));
+    ctx.restore();
+  }
+};
 function desenharBarras(id, rotulos, valores) {
   const el = document.getElementById(id);
   if (!el || typeof Chart === "undefined") return;
@@ -340,15 +425,32 @@ function desenharBarras(id, rotulos, valores) {
   }
   graficos[id] = new Chart(el, {
     type: "bar",
-    data: { labels: rotulos, datasets: [{ data: valores, backgroundColor: COR.api, borderRadius: 3 }] },
+    data: { labels: rotulos, datasets: [{ data: valores, backgroundColor: COR.api, borderRadius: 3, minBarLength: 3 }] },
+    plugins: [rotulosBarras],
     options: {
       animation: false, responsive: true, maintainAspectRatio: false,
+      layout: { padding: { top: 16 } },
       plugins: { legend: { display: false } },
       scales: { y: { min: 0, max: 100, ticks: { callback: v => v + " %" }, grid: { color: COR.grade } }, x: { grid: { display: false } } }
     }
   });
 }
-const serie = (L, campo) => L.map(l => ({ x: l.ts * 1000, y: l[campo] }));
+/* Interrompe a linha onde faltaram leituras (ex.: simulação desligada por horas),
+   em vez de ligar dois pontos distantes com uma reta enganosa. */
+function comQuebras(pontos) {
+  if (pontos.length < 3) return pontos;
+  const difs = [];
+  for (let i = 1; i < pontos.length; i++) difs.push(pontos[i].x - pontos[i - 1].x);
+  const mediana = difs.slice().sort((a, b) => a - b)[Math.floor(difs.length / 2)];
+  const limite = Math.max(15 * 60 * 1000, 6 * mediana);
+  const out = [pontos[0]];
+  for (let i = 1; i < pontos.length; i++) {
+    if (pontos[i].x - pontos[i - 1].x > limite) out.push({ x: pontos[i - 1].x + 1, y: null });
+    out.push(pontos[i]);
+  }
+  return out;
+}
+const serie = (L, campo) => comQuebras(L.map(l => ({ x: l.ts * 1000, y: l[campo] })));
 
 /* ------------------------------ renderização ------------------------------ */
 const $ = id => document.getElementById(id);
@@ -357,7 +459,7 @@ function texto(id, t) { const e = $(id); if (e) e.textContent = t; }
 function renderStatus() {
   const L = estado.leituras;
   let cls = "off", msg;
-  if (DEMO) { cls = "demo"; msg = "Modo demonstração (dados simulados no navegador)"; }
+  if (emDemo()) { cls = "demo"; msg = "Modo demonstração (dados simulados no navegador)"; }
   else if (estado.erro) { msg = "Sem conexão com o Firebase: " + estado.erro; }
   else if (!L.length) { msg = "Aguardando as primeiras leituras do ESP32"; }
   else {
@@ -385,7 +487,7 @@ function renderLeituras(d) {
   valor("v-temp", fmt(ult.t), "°C");
   texto("s-temp", `mín. ${fmt(Math.min(...hoje.map(l => l.t)))} °C, máx. ${fmt(Math.max(...hoje.map(l => l.t)))} °C em 24 h`);
   valor("v-umid", fmt(ult.u, 0), "%");
-  texto("s-umid", trend ? `${sgn(trend.u3, 0)} pontos em 3 h` : "variação indisponível");
+  texto("s-umid", trend ? (trend.horas < 2.9 ? `${sgn(trend.deltaU, 0)} pontos em ${Math.max(1, Math.round(trend.horas * 60))} min` : `${sgn(trend.u3, 0)} pontos em 3 h`) : "variação indisponível");
   valor("v-pres", fmt(ult.p), "hPa");
   texto("s-pres", trend ? (() => { const v = variacaoPressao(trend); return `${sgn(v.cai ? -v.valor : v.valor)} hPa em ${v.janela}`; })() : "variação indisponível");
   $("v-pres").classList.toggle("alerta", !!trend && trend.p3 <= -2);
@@ -403,16 +505,19 @@ function renderPressao(d) {
   const ontem = L.filter(l => l.ts * 1000 >= fim - 2 * dia && l.ts * 1000 < fim - dia)
                  .map(l => ({ x: l.ts * 1000 + dia, y: l.p }));
   const ds = [conjunto("hoje", serie(hoje, "p"), COR.est, false)];
-  if (ontem.length) ds.push(conjunto("mesmo horário de ontem", ontem, COR.estClara, true));
-  const inicio = hoje.length ? Math.max(fim - dia, hoje[0].ts * 1000) : fim - dia;
+  if (ontem.length) ds.push(conjunto("mesmo horário de ontem", comQuebras(ontem), COR.estClara, true));
+  const inicio = Math.max(fim - dia, inicioUltimaSessao(L) * 1000);
   desenharLinha("graf-pressao", ds, inicio, fim, 4);
+  texto("tit-pressao", (fim - inicio) >= 23 * 3600 * 1000 ? "Pressão nas últimas 24 horas"
+    : `Pressão na última sessão (${Math.max(1, Math.round((fim - inicio) / 60000))} min)`);
+  texto("nota-pressao", foras["graf-pressao"] ? `${foras["graf-pressao"]} leitura(s) extrema(s) ficam fora do quadro. Em Histórico, "Escala: completa" mostra tudo.` : "");
   if (d.trend) {
     const cai = d.trend.p3 < 0;
     const t = $("tend-titulo");
     const vp = variacaoPressao(d.trend);
     t.textContent = `${cai ? "Caindo" : "Subindo"} ${fmt(vp.valor)} hPa em ${vp.janela}`;
     t.className = cai && d.trend.p3 <= -2 ? "alerta" : "";
-    const parcial = d.trend.horas < 2.9 ? `ritmo equivalente a ${sgn(d.trend.p3)} hPa em 3 h. ` : "";
+    const parcial = d.trend.horas < 2.9 ? `ritmo equivalente a ${ritmoTexto(d.trend.p3)}. ` : "";
     texto("tend-sub", parcial + (d.anom == null ? "Sem dados de ontem para comparar."
       : `${fmt(Math.abs(d.anom))} hPa ${d.anom < 0 ? "abaixo" : "acima"} de ontem neste horário.`));
   } else { texto("tend-titulo", "Tendência indisponível"); texto("tend-sub", "são necessárias leituras de pelo menos 5 minutos"); }
@@ -424,7 +529,8 @@ function renderChuva(d) {
   ["baixa", "media", "alta"].forEach(k => $("esc-" + k).classList.remove("ativa"));
   $("esc-" + { Baixa: "baixa", "Média": "media", Alta: "alta" }[d.est.cat]).classList.add("ativa");
   const top = d.est.fatores.filter(f => f.pts > 0).sort((a, b) => b.pts - a.pts).slice(0, 3).map(f => f.nome.toLowerCase());
-  texto("est-motivo", top.length ? "Pesaram: " + top.join(", ") + "." : "Nenhum fator indica chuva agora.");
+  texto("est-motivo", (top.length ? "Pesaram: " + top.join(", ") + "." : "Nenhum fator indica chuva agora.")
+    + (d.est.parcial ? " Estimativa parcial: ainda sem tendência da pressão." : ""));
   const a = estado.api;
   if (a) {
     texto("api-pct", `${fmt(a.chuva3h, 0)} %`);
@@ -439,6 +545,11 @@ function renderApiGrafico() {
   const rot = a.horas.map(t => new Date(t * 1000).getHours().toString().padStart(2, "0") + "h");
   desenharBarras("graf-api", rot, a.prob);
   desenharBarras("graf-api2", rot, a.prob);
+  const validos = a.prob.filter(x => x != null);
+  const maximo = validos.length ? Math.max(...validos) : null;
+  const nota = maximo == null ? "" : (maximo <= 0 ? "A API não prevê chuva nas próximas 12 horas."
+    : `Maior chance prevista: ${fmt(maximo, 0)} %, por volta das ${rot[a.prob.indexOf(maximo)]}.`);
+  texto("api-nota", nota); texto("api-nota2", nota);
 }
 
 function renderAlertas(d) {
@@ -449,11 +560,13 @@ function renderAlertas(d) {
     li.querySelector("strong").textContent = titulo; li.querySelector("span").textContent = det;
     ul.appendChild(li);
   };
+  if (estado.descartadas) add("atencao", "Leituras ignoradas",
+    `${estado.descartadas} leitura(s) com valor impossível (pressão ao nível do mar fora de 870 a 1090 hPa, temperatura fora de −20 a 60 °C ou umidade fora de 0 a 100 %) não entram nos gráficos nem nos cálculos.`);
   if (!d) { add("neutro", "Sem leituras", "O dashboard mostra os alertas quando houver dados."); return; }
   if (d.trend && d.trend.p3 <= -2) {
     const v = variacaoPressao(d.trend);
     add("perigo", "Queda de pressão", v.parcial
-      ? `${fmt(v.valor)} hPa em ${v.janela} (ritmo equivalente a ${fmt(Math.abs(d.trend.p3))} hPa em 3 h; limite: 2,0 hPa em 3 h)`
+      ? `${fmt(v.valor)} hPa em ${v.janela} (ritmo equivalente a ${Math.abs(d.trend.p3) > 20 ? "mais de 20" : fmt(Math.abs(d.trend.p3))} hPa em 3 h; limite: 2,0 hPa em 3 h)`
       : `${fmt(v.valor)} hPa em 3 h (limite: 2,0 hPa)`);
   }
   if (estado.api && d.est.cat !== "Baixa" && estado.api.chuva3h >= 50) add("ok", "Estação e API concordam", "As duas apontam chuva nas próximas horas.");
@@ -469,9 +582,28 @@ function renderAlertas(d) {
   if (!ul.children.length) add("ok", "Tudo tranquilo", "Nenhum alerta ativo no momento.");
 }
 
+/* Início da última sequência contínua de leituras (sem pausas longas). */
+function inicioUltimaSessao(L) {
+  if (L.length < 3) return L.length ? L[0].ts : 0;
+  const rec = L.slice(-200), difs = [];
+  for (let i = 1; i < rec.length; i++) difs.push(rec[i].ts - rec[i - 1].ts);
+  const mediana = difs.slice().sort((a, b) => a - b)[Math.floor(difs.length / 2)];
+  const limite = Math.max(15 * 60, 6 * mediana);
+  let ini = L[L.length - 1].ts;
+  for (let i = L.length - 1; i > 0; i--) {
+    if (L[i].ts - L[i - 1].ts > limite) break;
+    ini = L[i - 1].ts;
+  }
+  return ini;
+}
+
 function recorte(L) {
   if (!L.length) return L;
   const fim = L[L.length - 1].ts;
+  if (estado.periodo === "sessao") {       // última sequência contínua, no máximo 24 h
+    const ini = Math.max(inicioUltimaSessao(L), fim - 24 * 3600);
+    return L.filter(l => l.ts >= ini);
+  }
   const janela = { "24h": 24 * 3600, "7d": 7 * 24 * 3600, tudo: Infinity }[estado.periodo];
   return L.filter(l => l.ts >= fim - janela);
 }
@@ -483,6 +615,10 @@ function renderHistorico() {
   desenharLinha("graf-temp", [conjunto("Temperatura (°C)", serie(L, "t"), COR.est, false)], xmin, xmax, 4);
   desenharLinha("graf-umid", [conjunto("Umidade (%)", serie(L, "u"), COR.est, false)], xmin, xmax, 10);
   desenharLinha("graf-pres", [conjunto("Pressão (hPa)", serie(L, "p"), COR.est, false)], xmin, xmax, 6);
+  const totalFora = ["graf-temp", "graf-umid", "graf-pres"].reduce((t, id) => t + (foras[id] || 0), 0);
+  texto("btn-escala", estado.escalaTotal ? "Escala: completa" : "Escala: típica");
+  texto("nota-escala", !estado.escalaTotal && totalFora
+    ? `Escala típica: ${totalFora} leitura(s) extrema(s) ficam fora do quadro. Use "Escala: completa" para ver tudo.` : "");
   const linhas = [["Temperatura (°C)", "t", 1], ["Umidade (%)", "u", 0], ["Pressão (hPa)", "p", 1]].map(([nome, c, d]) => {
     const v = L.map(l => l[c]);
     const media = v.reduce((a, b) => a + b, 0) / v.length;
@@ -504,6 +640,7 @@ function renderPrevisao(d) {
     caixa.appendChild(div);
   });
   texto("total-pts", `${d.est.total}: ${d.est.cat.toLowerCase()}`);
+  texto("total-nota", d.est.parcial ? "Estimativa parcial: faltam leituras para calcular a tendência da pressão, que é o fator de maior peso." : "");
   $("marcador").style.left = clip(d.est.total, 0, 100) + "%";
 }
 
@@ -1040,6 +1177,10 @@ function iniciar() {
     b.classList.add("ativa"); estado.periodo = b.dataset.periodo; renderHistorico();
   }));
   $("btn-csv").addEventListener("click", exportarCsv);
+  $("btn-zoom-mais").addEventListener("click", () => zoomGraficos(1.5));
+  $("btn-zoom-menos").addEventListener("click", () => zoomGraficos(0.67));
+  $("btn-zoom-reset").addEventListener("click", resetarZoom);
+  $("btn-escala").addEventListener("click", () => { estado.escalaTotal = !estado.escalaTotal; resetarZoom(); });
   $("tg-token").value = TG.token();
   $("tg-chat").value = TG.chat();
   $("tg-auto").checked = TG.auto();
@@ -1068,5 +1209,5 @@ if (typeof document !== "undefined") {
   document.addEventListener("DOMContentLoaded", iniciar);
 }
 if (typeof module !== "undefined") {
-  module.exports = { CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, restaurarAtividade, criarAtividade, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
+  module.exports = { inicioUltimaSessao, comQuebras, leituraValida, buscarLeituras, CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, restaurarAtividade, criarAtividade, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
 }
