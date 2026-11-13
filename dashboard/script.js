@@ -1,7 +1,7 @@
 "use strict";
 
 /* =====================================================================
-   Dashboard da estação meteorológica
+   ClimaSense: dashboard da estação meteorológica
    ESP32 -> Firebase Realtime Database -> este dashboard (+ API Open-Meteo)
 
    Para usar: troque firebaseUrl abaixo pela URL do seu Realtime Database.
@@ -12,6 +12,7 @@ const CONFIG = {
   firebaseUrl: "https://estacao-metereologica-50584-default-rtdb.firebaseio.com/",
   apiKey: "AIzaSyAKvbL4f6C-MEYAD_lGusr9OjvKryRQ7Ys",             // Web API Key do Firebase (Authentication). Vazio = perfil local, sem senha.
   estacao: "est01",
+  altitude: 211,          // metros; igual ao ALTITUDE_M do sketch.ino (só usado no modo demonstração)
   lat: -12.27,            // Feira de Santana (BA), aproximado. Ajuste para o seu local.
   lon: -38.97,
   fusoApi: "America/Bahia",
@@ -22,8 +23,51 @@ const CONFIG = {
 };
 const emDemo = () => CONFIG.firebaseUrl.includes("SEU-PROJETO");
 
-const COR = { est: "#0B6E7F", estClara: "#7FA3AB", api: "#B7791F", alerta: "#A8402B",
-              chuva: "#3B6EA8", grade: "#E3EBE9", mudo: "#5B6E73" };
+const COR = { est: "#377c70", estClara: "#9cc3b9", api: "#4b8fb2", alerta: "#c76d5d",
+              chuva: "#4b8fb2", grade: "#edf0ef", mudo: "#6d7b78", tinta: "#182724" };
+
+/* Ícones do design (mesmos traçados do mock). <svg data-i="nome"> é preenchido por montarIcones(). */
+const ICONES = {
+  cloud: '<path d="M17.5 19H7a5 5 0 1 1 1-9.9A7 7 0 0 1 21 12.5 3.5 3.5 0 0 1 17.5 19Z"/><path d="M8 19h9.5"/>',
+  grid: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+  chart: '<path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 17h.01M12 17h.01"/>',
+  check: '<circle cx="12" cy="12" r="9"/><path d="m8 12 2.5 2.5L16 9"/>',
+  sliders: '<path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h7M15 18h5"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="13" cy="18" r="2"/>',
+  bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"/>',
+  droplet: '<path d="M12 3s6 6.5 6 11a6 6 0 0 1-12 0c0-4.5 6-11 6-11Z"/>',
+  wind: '<path d="M3 8h12a3 3 0 1 0-3-3"/><path d="M3 12h16a2 2 0 1 1-2 2"/><path d="M3 16h8"/>',
+  gauge: '<path d="M4 14a8 8 0 0 1 16 0"/><path d="m12 14 4-5"/><path d="M6 18h12"/>',
+  rain: '<path d="M17 14H7a4 4 0 1 1 1-7.9A6 6 0 0 1 19 9a3 3 0 0 1-2 5Z"/><path d="m8 17-1 2M13 17l-1 2M18 17l-1 2"/>',
+  arrow: '<path d="M5 12h14"/><path d="m14 7 5 5-5 5"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  leaf: '<path d="M20 4S10 3 6 8s0 10 0 10 5 4 10 0 4-14 4-14Z"/><path d="M4 21c3-7 7-10 12-13"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V4H6.5A2.5 2.5 0 0 0 4 6.5v13Z"/><path d="M8 8h8M8 12h6"/>',
+  shield: '<path d="M12 3 4 6v5c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6l-8-3Z"/><path d="m9 12 2 2 4-4"/>',
+  close: '<path d="m6 6 12 12M18 6 6 18"/>',
+  eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',
+  logout: '<path d="M10 17l5-5-5-5M15 12H3"/><path d="M14 4h5a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-5"/>',
+  chevron: '<path d="m9 18 6-6-6-6"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
+  alert: '<path d="M12 3 2 20h20L12 3Z"/><path d="M12 10v4M12 17h.01"/>'
+};
+function icone(nome, tam = 20, classe = "") {
+  return `<svg class="i ${classe}" width="${tam}" height="${tam}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONES[nome] || ""}</svg>`;
+}
+function montarIcones(raiz) {
+  (raiz || document).querySelectorAll("svg[data-i]").forEach(el => {
+    const t = el.getAttribute("data-size") || 20;
+    el.setAttribute("width", t); el.setAttribute("height", t);
+    el.setAttribute("viewBox", "0 0 24 24"); el.setAttribute("fill", "none");
+    el.setAttribute("stroke", "currentColor"); el.setAttribute("stroke-width", "1.8");
+    el.setAttribute("stroke-linecap", "round"); el.setAttribute("stroke-linejoin", "round");
+    el.setAttribute("aria-hidden", "true");
+    el.innerHTML = ICONES[el.getAttribute("data-i")] || "";
+    el.removeAttribute("data-i");
+  });
+}
 const NIVEIS = ["Liberado", "Atenção", "Adiar"];
 
 /* Atividades e regras predefinidas, por perfil. Os limites são exemplos e devem
@@ -205,7 +249,8 @@ function avaliarAtividade(ativ, vars) {
 }
 
 /* ------------------------------ dados ------------------------------ */
-const estado = { leituras: [], api: null, conta: null, rascunho: {}, descartadas: 0, erro: null, periodo: "sessao", escalaTotal: false, apiErro: null };
+const estado = { leituras: [], api: null, conta: null, rascunho: {}, descartadas: 0, erro: null, periodo: "sessao", escalaTotal: false, apiErro: null,
+                 expandidas: {}, filtroRegras: "todos", buscaRegras: "" };
 
 function gerarDemo() {
   const agora = Math.floor(Date.now() / 1000);
@@ -250,8 +295,9 @@ async function buscarLeituras() {
 async function buscarApi() {
   const url = "https://api.open-meteo.com/v1/forecast"
     + `?latitude=${CONFIG.lat}&longitude=${CONFIG.lon}`
-    + "&hourly=precipitation_probability,precipitation,wind_speed_10m"
-    + `&timezone=${encodeURIComponent(CONFIG.fusoApi)}&timeformat=unixtime&forecast_days=2`;
+    + "&hourly=precipitation_probability,precipitation,wind_speed_10m,temperature_2m,cloud_cover"
+    + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max"
+    + `&timezone=${encodeURIComponent(CONFIG.fusoApi)}&timeformat=unixtime&forecast_days=5`;
   const r = await fetch(url);
   if (!r.ok) throw new Error("Open-Meteo respondeu HTTP " + r.status);
   const j = await r.json();
@@ -259,13 +305,21 @@ async function buscarApi() {
   let idx = 0;
   for (let i = 0; i < h.time.length; i++) if (h.time[i] <= agora) idx = i;
   const fatia = (arr, n) => arr.slice(idx, idx + n);
-  const max = a => a.length ? Math.max(...a.filter(x => x != null)) : null;
+  const max = a => { const v = a.filter(x => x != null); return v.length ? Math.max(...v) : null; };
+  const d = j.daily || {};
   return {
     consultadoEm: Date.now(),
     horas: fatia(h.time, 12),
     prob: fatia(h.precipitation_probability, 12),
     mm: fatia(h.precipitation, 12),
     vento: fatia(h.wind_speed_10m, 12),
+    temp: fatia(h.temperature_2m || [], 12),
+    nuvens: fatia(h.cloud_cover || [], 12),
+    dias: (d.time || []).map((t, i) => ({
+      ts: t, max: d.temperature_2m_max[i], min: d.temperature_2m_min[i],
+      prob: d.precipitation_probability_max ? d.precipitation_probability_max[i] : null,
+      vento: d.wind_speed_10m_max ? d.wind_speed_10m_max[i] : null
+    })),
     chuva3h: max(fatia(h.precipitation_probability, 3)),
     chuva6h: max(fatia(h.precipitation_probability, 6)),
     ventoAgora: h.wind_speed_10m[idx]
@@ -294,9 +348,10 @@ function derivados() {
 
 /* ------------------------------ gráficos ------------------------------ */
 const graficos = {};
-function conjunto(label, pontos, cor, tracejado) {
-  return { label, data: pontos, borderColor: cor, borderWidth: tracejado ? 1.4 : 1.8, borderDash: tracejado ? [5, 4] : [],
-           pointRadius: pontos.length < 40 ? 3 : 0, tension: 0.2, fill: false, spanGaps: false };
+function conjunto(label, pontos, cor, tracejado, area) {
+  return { label, data: pontos, borderColor: cor, borderWidth: tracejado ? 1.6 : 2.2, borderDash: tracejado ? [5, 4] : [],
+           pointRadius: pontos.length < 40 ? 3 : 0, pointBackgroundColor: cor, tension: 0.25, spanGaps: false,
+           fill: area ? "origin" : false, backgroundColor: area ? "rgba(55, 124, 112, 0.10)" : cor };
 }
 const decs = {}, foras = {};
 function rotuloX(ms, faixa) {
@@ -374,7 +429,7 @@ function desenharLinha(id, datasets, xmin, xmax, spanMin = 0) {
       animation: false, responsive: true, maintainAspectRatio: false, parsing: false,
       interaction: { mode: "nearest", intersect: false },
       plugins: {
-        legend: { display: datasets.length > 1, labels: { boxWidth: 12 } },
+        legend: { display: datasets.length > 1, labels: { boxWidth: 12, usePointStyle: true } },
         tooltip: { callbacks: {
           title: it => it.length ? dataHoraCompleta(it[0].parsed.x) : "",
           label: c => `${c.dataset.label}: ${fmt(c.parsed.y, 2)}`
@@ -411,7 +466,7 @@ const rotulosBarras = {      // escreve o valor acima de cada barra (inclusive 0
   id: "rotulosBarras",
   afterDatasetsDraw(chart) {
     const ctx = chart.ctx, meta = chart.getDatasetMeta(0), dados = chart.data.datasets[0].data;
-    ctx.save(); ctx.fillStyle = "#12262D"; ctx.font = "12px sans-serif"; ctx.textAlign = "center";
+    ctx.save(); ctx.fillStyle = COR.tinta; ctx.font = "600 11px 'DM Sans', sans-serif"; ctx.textAlign = "center";
     meta.data.forEach((barra, i) => ctx.fillText(String(Math.round(dados[i])), barra.x, barra.y - 4));
     ctx.restore();
   }
@@ -425,7 +480,7 @@ function desenharBarras(id, rotulos, valores) {
   }
   graficos[id] = new Chart(el, {
     type: "bar",
-    data: { labels: rotulos, datasets: [{ data: valores, backgroundColor: COR.api, borderRadius: 3, minBarLength: 3 }] },
+    data: { labels: rotulos, datasets: [{ data: valores, backgroundColor: COR.api, borderRadius: 6, borderSkipped: false, minBarLength: 3, maxBarThickness: 34 }] },
     plugins: [rotulosBarras],
     options: {
       animation: false, responsive: true, maintainAspectRatio: false,
@@ -456,23 +511,29 @@ const serie = (L, campo) => comQuebras(L.map(l => ({ x: l.ts * 1000, y: l[campo]
 const $ = id => document.getElementById(id);
 function texto(id, t) { const e = $(id); if (e) e.textContent = t; }
 
+const haTempo = s => s < 90 ? "agora há pouco" : s < 3600 ? `há ${Math.round(s / 60)} min` : s < 86400 ? `há ${Math.round(s / 3600)} h` : `há ${Math.round(s / 86400)} d`;
+const maiuscula = t => t.charAt(0).toUpperCase() + t.slice(1);
+
 function renderStatus() {
   const L = estado.leituras;
-  let cls = "off", msg;
-  if (emDemo()) { cls = "demo"; msg = "Modo demonstração (dados simulados no navegador)"; }
-  else if (estado.erro) { msg = "Sem conexão com o Firebase: " + estado.erro; }
-  else if (!L.length) { msg = "Aguardando as primeiras leituras do ESP32"; }
+  let cls = "off", dot = "wait", msg, titulo, sub;
+  if (emDemo()) { cls = "demo"; dot = "demo"; msg = "Modo demonstração (dados simulados no navegador)"; titulo = "Modo demonstração"; sub = "Dados simulados no navegador"; }
+  else if (estado.erro) { dot = "off"; msg = "Sem conexão com o Firebase: " + estado.erro; titulo = "Sem conexão"; sub = "Firebase indisponível"; }
+  else if (!L.length) { dot = "wait"; msg = "Aguardando as primeiras leituras do ESP32"; titulo = "Aguardando leituras"; sub = "Do ESP32"; }
   else {
     const ult = L[L.length - 1];
     const deltas = L.slice(-6).slice(1).map((l, i) => l.ts - L.slice(-6)[i].ts).sort((a, b) => a - b);
     const intervalo = deltas.length ? deltas[Math.floor(deltas.length / 2)] : 60;
     const limite = Math.max(30, intervalo * 3);
     const idade = Date.now() / 1000 - ult.ts;
-    if (idade <= limite) { cls = "on"; msg = `Online, atualizada às ${hhmm(ult.ts * 1000)}`; }
-    else { msg = `Offline, última leitura às ${hhmm(ult.ts * 1000)}`; }
+    if (idade <= limite) { cls = "on"; dot = ""; msg = `Online, atualizada às ${hhmm(ult.ts * 1000)}`; titulo = "Estação online"; sub = `Atualizada ${haTempo(idade)}`; }
+    else { dot = "off"; msg = `Offline, última leitura às ${hhmm(ult.ts * 1000)}`; titulo = "Estação offline"; sub = `Última leitura ${haTempo(idade)}`; }
   }
   $("ponto").className = "ponto " + cls;
   texto("status-texto", msg);
+  $("side-dot").className = "live-dot " + dot;
+  $("h-dot").className = "live-dot " + dot;
+  texto("side-status", titulo); texto("side-sub", sub);
 }
 
 function valor(id, n, un) {
@@ -480,21 +541,197 @@ function valor(id, n, un) {
   if (e) e.innerHTML = n + "<small> " + un + "</small>";
 }
 
+function textoCalor(calor) {
+  return calor >= 51 ? "perigo extremo (referência NWS)" : calor >= 39 ? "perigo (referência NWS)" : calor >= 32 ? "cuidado extremo (referência NWS)" : calor >= 27 ? "cuidado (referência NWS)" : "igual à temperatura (a fórmula vale acima de 27 °C)";
+}
+
 function renderLeituras(d) {
   if (!d) return;
   const { ult, orv, trend, calor } = d;
   const hoje = estado.leituras.filter(l => l.ts >= ult.ts - 24 * 3600);
-  valor("v-temp", fmt(ult.t), "°C");
+  $("v-temp").innerHTML = `${fmt(ult.t)}<sup>°C</sup>`;
   texto("s-temp", `mín. ${fmt(Math.min(...hoje.map(l => l.t)))} °C, máx. ${fmt(Math.max(...hoje.map(l => l.t)))} °C em 24 h`);
   valor("v-umid", fmt(ult.u, 0), "%");
   texto("s-umid", trend ? (trend.horas < 2.9 ? `${sgn(trend.deltaU, 0)} pontos em ${Math.max(1, Math.round(trend.horas * 60))} min` : `${sgn(trend.u3, 0)} pontos em 3 h`) : "variação indisponível");
+  texto("d-umid", trend ? `${sgn(trend.horas < 2.9 ? trend.deltaU : trend.u3, 0)} pts` : "");
   valor("v-pres", fmt(ult.p), "hPa");
-  texto("s-pres", trend ? (() => { const v = variacaoPressao(trend); return `${sgn(v.cai ? -v.valor : v.valor)} hPa em ${v.janela}`; })() : "variação indisponível");
+  const vp = trend ? variacaoPressao(trend) : null;
+  texto("s-pres", vp ? `${sgn(vp.cai ? -vp.valor : vp.valor)} hPa em ${vp.janela}` : "variação indisponível");
+  texto("d-pres", vp ? sgn(vp.cai ? -vp.valor : vp.valor) : "");
   $("v-pres").classList.toggle("alerta", !!trend && trend.p3 <= -2);
   valor("v-orv", fmt(orv), "°C");
   texto("s-orv", `${fmt(ult.t - orv)} °C abaixo da temperatura`);
+  texto("d-orv", `Δ ${fmt(ult.t - orv)}°`);
   valor("v-calor", fmt(calor), "°C");
-  texto("s-calor", calor >= 51 ? "perigo extremo (referência NWS)" : calor >= 39 ? "perigo (referência NWS)" : calor >= 32 ? "cuidado extremo (referência NWS)" : calor >= 27 ? "cuidado (referência NWS)" : "igual à temperatura (a fórmula vale acima de 27 °C)");
+  texto("s-calor", textoCalor(calor));
+  texto("d-calor", calor >= 39 ? "Perigo" : calor >= 32 ? "Cuidado" : calor >= 27 ? "Atenção" : "Normal");
+}
+
+/* ----------------------------- hero e previsão por hora ----------------------------- */
+function condicao() {
+  const a = estado.api;
+  if (!a || !a.prob.length) return null;
+  const prob = a.prob[0] ?? 0, mm = a.mm[0] ?? 0;
+  const nuv = a.nuvens && a.nuvens[0] != null ? a.nuvens[0] : null;
+  if (mm >= 0.2 || prob >= 60) return { texto: "Chuva provável", tipo: "rain" };
+  if (prob >= 35) return { texto: "Possibilidade de chuva", tipo: "rain" };
+  if (nuv != null && nuv >= 80) return { texto: "Nublado", tipo: "cloud" };
+  if (nuv != null && nuv >= 35) return { texto: "Parcialmente nublado", tipo: "parcial" };
+  return { texto: "Céu limpo", tipo: "sun" };
+}
+function iconeClima(tipo, tam) {
+  if (tipo === "parcial") return icone("sun", tam) + `<i>${icone("cloud", Math.round(tam * 0.74))}</i>`;
+  return icone(tipo, tam);
+}
+function iconeHora(prob, mm, nuv) {
+  if ((mm || 0) >= 0.2 || (prob || 0) >= 35) return "rain";
+  if (nuv != null && nuv >= 60) return "cloud";
+  return "sun";
+}
+
+function saudacao() {
+  const h = new Date().getHours();
+  const base = h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite";
+  const c = estado.conta;
+  const nome = c && (c.nome || c.email) ? String(c.nome || c.email).split(/[ @]/)[0] : "";
+  texto("v-saudacao", nome ? `${base}, ${nome}` : base);
+  texto("v-data", new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "numeric", month: "long" }).toUpperCase());
+}
+
+function renderHero(d) {
+  saudacao();
+  texto("h-local", `Agora em ${CONFIG.localNome}`);
+  const cond = condicao();
+  const ic = $("h-icone");
+  const tipo = cond ? cond.tipo : "sun";
+  ic.className = "weather-icon " + tipo;
+  ic.innerHTML = iconeClima(tipo, 47);
+  if (!d) { texto("h-cond", "Aguardando leituras"); return; }
+  texto("h-cond", cond ? cond.texto : (d.est.cat === "Baixa" ? "Sem sinais de chuva" : `Chance de chuva ${d.est.cat.toLowerCase()}`));
+  texto("h-sens", `${fmt(d.calor, 0)} °C`);
+  const a = estado.api;
+  texto("h-chuva", a && a.chuva3h != null ? `${fmt(a.chuva3h, 0)}%` : "—");
+  texto("h-vento", a && a.ventoAgora != null ? `${fmt(a.ventoAgora, 0)} km/h` : "—");
+  texto("h-hora", `Atualizado às ${hhmm(d.ult.ts * 1000)}`);
+}
+
+function caminhoSuave(pontos) {      // curva suave por pontos (x, y)
+  if (pontos.length < 2) return "";
+  let d = `M${pontos[0][0].toFixed(1)} ${pontos[0][1].toFixed(1)}`;
+  for (let i = 1; i < pontos.length; i++) {
+    const [x0, y0] = pontos[i - 1], [x1, y1] = pontos[i], mx = (x0 + x1) / 2;
+    d += ` C${mx.toFixed(1)} ${y0.toFixed(1)},${mx.toFixed(1)} ${y1.toFixed(1)},${x1.toFixed(1)} ${y1.toFixed(1)}`;
+  }
+  return d;
+}
+
+function renderHoras() {
+  const a = estado.api, lista = $("hour-list"), spark = $("spark");
+  if (!a || !a.horas.length) return;
+  const n = Math.min(6, a.horas.length);
+  lista.innerHTML = "";
+  for (let i = 0; i < n; i++) {
+    const hora = new Date(a.horas[i] * 1000).getHours().toString().padStart(2, "0") + "h";
+    const t = a.temp && a.temp[i] != null ? `${Math.round(a.temp[i])}°` : "—";
+    const p = a.prob[i] != null ? `${Math.round(a.prob[i])}%` : "—";
+    const div = document.createElement("div");
+    if (i === 0) div.className = "current";
+    div.innerHTML = `<span>${i === 0 ? "Agora" : hora}</span>${icone(iconeHora(a.prob[i], a.mm[i], a.nuvens && a.nuvens[i]), 26)}<strong>${t}</strong><small>${icone("droplet", 12)}${p}</small>`;
+    lista.appendChild(div);
+  }
+  const temps = (a.temp || []).filter(v => v != null);
+  if (temps.length < 2) { spark.innerHTML = ""; return; }
+  const mn = Math.min(...temps), mx = Math.max(...temps), faixa = Math.max(mx - mn, 2);
+  const pts = temps.map((v, i) => [i / (temps.length - 1) * 600, 92 - (v - mn) / faixa * 66]);
+  const linha = caminhoSuave(pts);
+  spark.innerHTML = `<span class="grid-line one"></span><span class="grid-line two"></span>
+    <svg viewBox="0 0 600 110" preserveAspectRatio="none"><defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#4b8f83" stop-opacity=".23"/><stop offset="100%" stop-color="#4b8f83" stop-opacity="0"/></linearGradient></defs>
+    <path class="area" d="${linha} L600 110 L0 110Z"/><path class="line" d="${linha}"/></svg>`;
+}
+
+/* Maior sequência de horas, nas próximas 12 h, com chance de chuva abaixo de 30%. */
+function melhorJanela() {
+  const a = estado.api;
+  if (!a || !a.horas.length) return null;
+  let melhor = null, atual = null;
+  a.horas.forEach((t, i) => {
+    const ok = a.prob[i] != null && a.prob[i] < 30;
+    if (ok) { atual = atual ? { ...atual, fim: i } : { ini: i, fim: i }; if (!melhor || atual.fim - atual.ini > melhor.fim - melhor.ini) melhor = atual; }
+    else atual = null;
+  });
+  return melhor;
+}
+function renderJanela() {
+  const a = estado.api;
+  if (!a) return;
+  const j = melhorJanela();
+  const h = i => new Date(a.horas[i] * 1000).getHours().toString().padStart(2, "0") + "h";
+  const chips = $("janela-chips"); chips.innerHTML = "";
+  if (!j) {
+    texto("janela-titulo", "Sem janela favorável");
+    texto("janela-texto", "A previsão indica chuva em todas as próximas 12 horas.");
+    return;
+  }
+  const fimH = new Date((a.horas[j.fim] + 3600) * 1000).getHours().toString().padStart(2, "0") + "h";
+  texto("janela-titulo", j.ini === 0 ? `Agora até as ${fimH}` : `Das ${h(j.ini)} às ${fimH}`);
+  texto("janela-texto", "Baixa chance de chuva nesse período, segundo a previsão da API.");
+  const fat = arr => arr.slice(j.ini, j.fim + 1).filter(v => v != null);
+  const faixa = (arr, un, d = 0) => { const v = fat(arr); return v.length ? (Math.min(...v) === Math.max(...v) ? `${fmt(v[0], d)} ${un}` : `${fmt(Math.min(...v), d)}–${fmt(Math.max(...v), d)} ${un}`) : null; };
+  [["sun", faixa(a.temp || [], "°C")], ["wind", faixa(a.vento, "km/h")], ["rain", faixa(a.prob, "%")]].forEach(([ic, t]) => {
+    if (!t) return;
+    const s = document.createElement("span"); s.innerHTML = icone(ic, 16) + " "; s.appendChild(document.createTextNode(t)); chips.appendChild(s);
+  });
+}
+
+function renderPrevisaoDias() {
+  const a = estado.api;
+  texto("p-local", CONFIG.localNome);
+  if (!a || !a.dias.length) return;
+  const hoje = a.dias[0], cond = condicao();
+  const tipo = cond ? cond.tipo : "sun";
+  const ic = $("p-icone"); ic.className = "weather-icon " + tipo; ic.innerHTML = iconeClima(tipo, 48);
+  texto("p-cond", cond ? cond.texto : "Previsão do dia");
+  texto("p-faixa", `Máxima de ${fmt(hoje.max, 0)}° · Mínima de ${fmt(hoje.min, 0)}°`);
+  texto("p-chuva", hoje.prob != null ? `${fmt(hoje.prob, 0)}%` : "—");
+  texto("p-vento", hoje.vento != null ? `${fmt(hoje.vento, 0)} km/h` : "—");
+  const caixa = $("dias"); caixa.innerHTML = "";
+  a.dias.slice(0, 5).forEach((dia, i) => {
+    const nome = i === 0 ? "Hoje" : i === 1 ? "Amanhã" : maiuscula(new Date(dia.ts * 1000).toLocaleDateString("pt-BR", { weekday: "long", timeZone: CONFIG.fusoApi })).replace("-feira", "");
+    const tipoDia = (dia.prob ?? 0) >= 50 ? "rain" : (dia.prob ?? 0) >= 25 ? "cloud" : "sun";
+    const desc = tipoDia === "rain" ? "Possibilidade de chuva" : tipoDia === "cloud" ? "Chance isolada de chuva" : "Pouca chance de chuva";
+    const row = document.createElement("div");
+    row.className = "day-row";
+    row.innerHTML = `<strong></strong>${icone(tipoDia, 20)}<span></span><small>${icone("droplet", 14)}<i style="font-style:normal"></i></small><b><em></em></b>`;
+    row.querySelector("strong").textContent = nome;
+    row.querySelector("span").textContent = desc;
+    row.querySelector("small i").textContent = dia.prob != null ? `${fmt(dia.prob, 0)}%` : "—";
+    const b = row.querySelector("b"); b.insertBefore(document.createTextNode(`${fmt(dia.max, 0)}° `), b.firstChild);
+    row.querySelector("em").textContent = `${fmt(dia.min, 0)}°`;
+    caixa.appendChild(row);
+  });
+}
+
+/* ícone, perfil e tom de cada atividade */
+const ICONE_ATIV = { educacao_fisica: "book", evento_aberto: "sun", irrigacao: "droplet", pulverizacao: "wind", colheita: "leaf" };
+const iconeAtividade = (id, a) => ICONE_ATIV[id] || (a.perfil === "agricola" ? "leaf" : "check");
+const ROTULO_PERFIL = { escola: "Escolar", agricola: "Agrícola" };
+const TOM = ["safe", "warning", "danger"];
+
+function renderRecomendacoes(d) {
+  const caixa = $("recomendacoes"); caixa.innerHTML = "";
+  if (!d) { caixa.innerHTML = '<p class="empty muted-note">Aguardando leituras para avaliar as atividades.</p>'; return; }
+  const itens = Object.entries(atividadesAtivas()).map(([id, a]) => ({ id, a, r: avaliarAtividade(a, d.vars) }))
+    .sort((x, y) => y.r.nivel - x.r.nivel).slice(0, 3);
+  itens.forEach(({ id, a, r }) => {
+    const div = document.createElement("div"); div.className = "recommendation";
+    div.innerHTML = `<span class="recommend-icon ${TOM[r.nivel]}">${icone(iconeAtividade(id, a), 20)}</span><span><strong></strong><small></small></span><b class="status ${TOM[r.nivel]}"></b>${icone("chevron", 16)}`;
+    div.querySelector("strong").textContent = a.nome;
+    div.querySelector("small").textContent = r.motivos.length ? r.motivos[0].texto : "Condições favoráveis agora";
+    div.querySelector(".status").textContent = NIVEIS[r.nivel];
+    div.addEventListener("click", () => irParaAba("atividades"));
+    caixa.appendChild(div);
+  });
 }
 
 function renderPressao(d) {
@@ -504,7 +741,7 @@ function renderPressao(d) {
   const hoje = L.filter(l => l.ts * 1000 >= fim - dia);
   const ontem = L.filter(l => l.ts * 1000 >= fim - 2 * dia && l.ts * 1000 < fim - dia)
                  .map(l => ({ x: l.ts * 1000 + dia, y: l.p }));
-  const ds = [conjunto("hoje", serie(hoje, "p"), COR.est, false)];
+  const ds = [conjunto("hoje", serie(hoje, "p"), COR.est, false, true)];
   if (ontem.length) ds.push(conjunto("mesmo horário de ontem", comQuebras(ontem), COR.estClara, true));
   const inicio = Math.max(fim - dia, inicioUltimaSessao(L) * 1000);
   desenharLinha("graf-pressao", ds, inicio, fim, 4);
@@ -554,15 +791,20 @@ function renderApiGrafico() {
 
 function renderAlertas(d) {
   const ul = $("alertas"); ul.innerHTML = "";
+  const TONS = { perigo: ["danger", "alert"], atencao: ["warning", "clock"], ok: ["safe", "check"], neutro: ["neutral", "cloud"] };
+  let pendentes = 0;
   const add = (cls, titulo, det) => {
-    const li = document.createElement("li"); li.className = cls;
-    li.innerHTML = `<strong></strong><span></span>`;
-    li.querySelector("strong").textContent = titulo; li.querySelector("span").textContent = det;
+    const [tom, ic] = TONS[cls] || TONS.neutro;
+    if (cls === "perigo" || cls === "atencao") pendentes++;
+    const li = document.createElement("li"); li.className = "alert-item";
+    li.innerHTML = `<span class="recommend-icon ${tom}">${icone(ic, 19)}</span><span><strong></strong><span class="txt"></span></span>`;
+    li.querySelector("strong").textContent = titulo; li.querySelector(".txt").textContent = det;
     ul.appendChild(li);
   };
+  const fim = () => { $("sino-ponto").classList.toggle("off", pendentes === 0); };
   if (estado.descartadas) add("atencao", "Leituras ignoradas",
     `${estado.descartadas} leitura(s) com valor impossível (pressão ao nível do mar fora de 870 a 1090 hPa, temperatura fora de −20 a 60 °C ou umidade fora de 0 a 100 %) não entram nos gráficos nem nos cálculos.`);
-  if (!d) { add("neutro", "Sem leituras", "O dashboard mostra os alertas quando houver dados."); return; }
+  if (!d) { add("neutro", "Sem leituras", "O dashboard mostra os alertas quando houver dados."); fim(); return; }
   if (d.trend && d.trend.p3 <= -2) {
     const v = variacaoPressao(d.trend);
     add("perigo", "Queda de pressão", v.parcial
@@ -580,6 +822,7 @@ function renderAlertas(d) {
     if (r.nivel === 2) add("perigo", `${a.nome}: adiar`, r.motivos.filter(m => m.n === 2).map(m => m.texto).join("; "));
   }
   if (!ul.children.length) add("ok", "Tudo tranquilo", "Nenhum alerta ativo no momento.");
+  fim();
 }
 
 /* Início da última sequência contínua de leituras (sem pausas longas). */
@@ -612,30 +855,34 @@ function renderHistorico() {
   const L = recorte(estado.leituras);
   if (!L.length) return;
   const xmin = L[0].ts * 1000, xmax = L[L.length - 1].ts * 1000;
-  desenharLinha("graf-temp", [conjunto("Temperatura (°C)", serie(L, "t"), COR.est, false)], xmin, xmax, 4);
-  desenharLinha("graf-umid", [conjunto("Umidade (%)", serie(L, "u"), COR.est, false)], xmin, xmax, 10);
-  desenharLinha("graf-pres", [conjunto("Pressão (hPa)", serie(L, "p"), COR.est, false)], xmin, xmax, 6);
+  desenharLinha("graf-temp", [conjunto("Temperatura (°C)", serie(L, "t"), COR.est, false, true)], xmin, xmax, 4);
+  desenharLinha("graf-umid", [conjunto("Umidade (%)", serie(L, "u"), COR.est, false, true)], xmin, xmax, 10);
+  desenharLinha("graf-pres", [conjunto("Pressão (hPa)", serie(L, "p"), COR.est, false, true)], xmin, xmax, 6);
   const totalFora = ["graf-temp", "graf-umid", "graf-pres"].reduce((t, id) => t + (foras[id] || 0), 0);
   texto("btn-escala", estado.escalaTotal ? "Escala: completa" : "Escala: típica");
   texto("nota-escala", !estado.escalaTotal && totalFora
     ? `Escala típica: ${totalFora} leitura(s) extrema(s) ficam fora do quadro. Use "Escala: completa" para ver tudo.` : "");
-  const linhas = [["Temperatura (°C)", "t", 1], ["Umidade (%)", "u", 0], ["Pressão (hPa)", "p", 1]].map(([nome, c, d]) => {
+  const defs = [["Temperatura", "t", 1, "°C", "sun", "orange", "tot-temp"], ["Umidade do ar", "u", 0, "%", "droplet", "blue", "tot-umid"], ["Pressão", "p", 1, "hPa", "gauge", "purple", "tot-pres"]];
+  const cartoes = defs.map(([nome, c, d, un, ic, cor, tot]) => {
     const v = L.map(l => l[c]);
     const media = v.reduce((a, b) => a + b, 0) / v.length;
-    return `<tr><td>${nome}</td><td>${fmt(Math.min(...v), d)}</td><td>${fmt(media, d)}</td><td>${fmt(Math.max(...v), d)}</td></tr>`;
+    $(tot).innerHTML = `${fmt(media, d)} ${un} <small>média</small>`;
+    return `<article class="metric-card"><div class="metric-icon ${cor}">${icone(ic, 21)}</div><p>${nome} média</p>
+      <strong>${fmt(media, d)}<small>${un}</small></strong>
+      <span class="metric-meta">mín. ${fmt(Math.min(...v), d)} · máx. ${fmt(Math.max(...v), d)} ${un}</span></article>`;
   });
-  $("resumo").innerHTML = linhas.join("");
+  $("resumo").innerHTML = cartoes.join("");
 }
 
 function renderPrevisao(d) {
   if (!d) return;
   const caixa = $("fatores"); caixa.innerHTML = "";
   d.est.fatores.forEach(f => {
-    const div = document.createElement("div"); div.className = "fator";
-    div.innerHTML = `<div><strong></strong><span class="mudo"></span></div><div class="trilho"><div class="preench"></div><b></b></div>`;
+    const div = document.createElement("div"); div.className = "factor";
+    div.innerHTML = `<div><strong></strong><span class="det"></span></div><div class="track"><div class="fill"></div><b></b></div>`;
     div.querySelector("strong").textContent = f.nome;
-    div.querySelector(".mudo").textContent = f.det;
-    div.querySelector(".preench").style.width = (f.pts * 2.5) + "px";
+    div.querySelector(".det").textContent = f.det;
+    div.querySelector(".fill").style.width = (f.pts * 2.5) + "px";
     div.querySelector("b").textContent = "+" + f.pts;
     caixa.appendChild(div);
   });
@@ -648,29 +895,53 @@ function renderAtividades() {
   texto("faixa-ativ", textoFaixaConta());
   const d = derivados();
   const caixa = $("cards"); caixa.innerHTML = "";
+  const resumo = $("ativ-resumo");
+  const badge = $("nav-ativ");
   const ativ = atividadesAtivas();
-  if (!d) { caixa.innerHTML = '<p class="mudo">Aguardando leituras para avaliar as atividades.</p>'; return; }
-  for (const a of Object.values(ativ)) {
-    const r = avaliarAtividade(a, d.vars);
-    const div = document.createElement("div");
-    div.className = "cartao n" + r.nivel;
-    div.innerHTML = `<div class="topo-cartao"><h3></h3><span class="selo"></span></div><p class="mudo perfil"></p><ul></ul>`;
-    div.querySelector("h3").textContent = a.nome;
-    div.querySelector(".selo").textContent = NIVEIS[r.nivel];
-    div.querySelector(".perfil").textContent = "Perfil: " + (a.perfil || "geral");
-    const ul = div.querySelector("ul");
-    (r.motivos.length ? r.motivos : [{ texto: "Nenhuma regra disparada." }]).forEach(m => {
-      const li = document.createElement("li"); li.textContent = m.texto; ul.appendChild(li);
-    });
-    caixa.appendChild(div);
+  if (!d) {
+    caixa.innerHTML = '<p class="muted-note">Aguardando leituras para avaliar as atividades.</p>';
+    resumo.classList.add("oculto"); badge.classList.add("oculto");
+    return;
   }
+  resumo.classList.remove("oculto");
+  const cont = [0, 0, 0];
+  for (const [id, a] of Object.entries(ativ)) {
+    const r = avaliarAtividade(a, d.vars);
+    cont[r.nivel]++;
+    const tom = TOM[r.nivel], aberto = !!estado.expandidas[id];
+    const card = document.createElement("article");
+    card.className = `rule-card ${tom}`;
+    card.innerHTML = `<div class="rule-icon ${tom}">${icone(iconeAtividade(id, a), 22)}</div>
+      <div class="rule-copy"><small></small><h3></h3><p></p><ul class="oculto"></ul></div>
+      <b class="status ${tom}"></b>
+      <button class="expand-rule ${aberto ? "open" : ""}" aria-label="Ver critérios" aria-expanded="${aberto}">${icone("chevron", 18)}</button>`;
+    card.querySelector("small").textContent = ROTULO_PERFIL[a.perfil] || a.perfil || "Geral";
+    card.querySelector("h3").textContent = a.nome;
+    card.querySelector("p").textContent = r.motivos.length ? r.motivos[0].texto : "Nenhuma regra disparada: condições adequadas.";
+    card.querySelector(".status").textContent = NIVEIS[r.nivel];
+    const ul = card.querySelector("ul");
+    (r.motivos.length ? r.motivos : [{ texto: "Todos os critérios estão dentro dos limites." }]).forEach(m => {
+      const li = document.createElement("li"); li.innerHTML = icone(r.motivos.length ? "alert" : "check", 14);
+      li.appendChild(document.createTextNode(m.texto)); ul.appendChild(li);
+    });
+    ul.classList.toggle("oculto", !aberto);
+    card.querySelector(".expand-rule").addEventListener("click", () => { estado.expandidas[id] = !estado.expandidas[id]; renderAtividades(); });
+    caixa.appendChild(card);
+  }
+  const pend = cont[1] + cont[2];
+  badge.textContent = String(pend); badge.classList.toggle("oculto", pend === 0);
+  const item = (tom, ic, forte, sub) => `<div><span class="summary-icon ${tom}">${icone(ic, 20)}</span><span><strong>${forte}</strong><small>${sub}</small></span></div>`;
+  resumo.innerHTML = item("safe", "check", `${cont[0]} ${cont[0] === 1 ? "liberada" : "liberadas"}`, "Atividades seguras")
+    + item("warning", "clock", `${cont[1]} em atenção`, "Requer monitoramento")
+    + item("danger", "shield", `${cont[2]} para adiar`, "Condição desfavorável")
+    + `<p>Atualizado com os dados das ${hhmm(d.ult.ts * 1000)}</p>`;
 }
 
 function mensagemAviso() {
   const d = derivados();
-  if (!d) return "Estação meteorológica: sem leituras no momento.";
+  if (!d) return "ClimaSense: sem leituras no momento.";
   const ativ = atividadesAtivas();
-  const linhas = [`Estação meteorológica, ${CONFIG.localNome} (${hhmm(Date.now())})`,
+  const linhas = [`ClimaSense, ${CONFIG.localNome} (${hhmm(Date.now())})`,
     `Temperatura ${fmt(d.ult.t)} °C, umidade ${fmt(d.ult.u, 0)} %, pressão ${fmt(d.ult.p)} hPa.`];
   for (const a of Object.values(ativ)) {
     const r = avaliarAtividade(a, d.vars);
@@ -738,13 +1009,14 @@ function exportarCsv() {
   estado.leituras.forEach(l => linhas.push([new Date(l.ts * 1000).toISOString(), l.t, l.u, l.pe, l.p].join(",")));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([linhas.join("\n")], { type: "text/csv" }));
-  a.download = "leituras_estacao.csv"; a.click();
+  a.download = "climasense_leituras.csv"; a.click();
 }
 
 function renderTudo() {
   const d = derivados();
-  renderStatus(); renderLeituras(d); renderPressao(d); renderChuva(d);
-  renderApiGrafico(); renderAlertas(d); renderHistorico(); renderPrevisao(d); renderAtividades(); renderConta();
+  renderStatus(); renderLeituras(d); renderHero(d); renderHoras(); renderRecomendacoes(d);
+  renderPressao(d); renderChuva(d); renderApiGrafico(); renderAlertas(d); renderHistorico();
+  renderPrevisao(d); renderPrevisaoDias(); renderJanela(); renderAtividades(); renderConta();
   verificarMudancas(d);
 }
 
@@ -978,7 +1250,12 @@ function renderConta() {
   const c = estado.conta;
   $("btn-conta").classList.toggle("oculto", !!c);
   $("conta-info").classList.toggle("oculto", !c);
-  if (c) texto("conta-nome", `${c.nome || c.email}, ${c.papel === "especialista" ? "especialista" : "usuário"}`);
+  const papel = c ? (c.papel === "especialista" ? "Especialista" : "Usuário") : "";
+  if (c) texto("conta-nome", `${c.nome || c.email} · ${papel.toLowerCase()}`);
+  texto("lado-nome", c ? (c.nome || c.email) : "Acessar conta");
+  texto("lado-sub", c ? papel : "Sincronize seus dados");
+  $("btn-conta-lado").classList.toggle("static", !!c);
+  saudacao();
 }
 
 function el(tag, props, filhos) {
@@ -989,7 +1266,7 @@ function el(tag, props, filhos) {
 }
 function statusRegras(msg, erro) {
   const e = $("regras-status");
-  if (e) { e.textContent = msg; e.className = "mudo" + (erro ? " erro" : ""); }
+  if (e) { e.textContent = msg; e.className = "muted-note" + (erro ? " erro" : ""); }
 }
 function rascunhoDe(id) {
   if (!estado.rascunho[id]) estado.rascunho[id] = clonar(atividadesAtivas()[id]);
@@ -1020,16 +1297,16 @@ function linhaEditavel(a, regra) {
   num.addEventListener("input", () => { regra.lim = num.value === "" ? "" : Number(num.value); });
   const rem = el("button", { type: "button", className: "remover", textContent: "×", title: "Remover critério" });
   rem.addEventListener("click", () => { a.regras.splice(a.regras.indexOf(regra), 1); renderRegras(); });
-  return el("div", { className: "criterio" }, [selVar, selOp, num, un, rem]);
+  return el("div", { className: "criterion" }, [selVar, selOp, num, un, rem]);
 }
 function secaoRegras(a, nivel, titulo, edita) {
-  const box = el("div", { className: "secao n-" + nivel }, [el("h4", { textContent: titulo })]);
+  const box = el("div", { className: "rule-section n-" + nivel }, [el("h4", { textContent: titulo })]);
   const itens = a.regras.filter(x => x.nivel === nivel);
-  if (!itens.length) box.appendChild(el("p", { className: "mudo", textContent: "Nenhum critério." }));
+  if (!itens.length) box.appendChild(el("p", { className: "rule-none", textContent: "Nenhum critério." }));
   itens.forEach(regra => box.appendChild(edita ? linhaEditavel(a, regra)
-    : el("p", { className: "criterio-texto", textContent: textoCriterio(regra) })));
+    : el("p", { className: "rule-text", textContent: textoCriterio(regra) })));
   if (edita) {
-    const b = el("button", { type: "button", className: "contorno peq", textContent: "+ Adicionar critério" });
+    const b = el("button", { type: "button", className: "btn-sm", textContent: "+ Adicionar critério" });
     b.addEventListener("click", () => { a.regras.push({ v: "chuva_api_3h", op: ">=", lim: 50, nivel }); renderRegras(); });
     box.appendChild(b);
   }
@@ -1039,20 +1316,21 @@ function cartaoRegras(id, base, edita) {
   const a = edita ? rascunhoDe(id) : base;
   const personalizada = !!(estado.conta && estado.conta.regras[id]);
   const selo = !(id in ATIVIDADES_PADRAO) ? "criada por especialista" : (personalizada ? "personalizada" : "padrão");
-  const topo = el("div", { className: "topo-cartao" }, [el("h3", { textContent: a.nome }), el("span", { className: "selo-neutro", textContent: selo })]);
-  const cartao = el("div", { className: "cartao-regras" }, [topo,
-    el("p", { className: "mudo", textContent: "Perfil: " + (PERFIS[a.perfil] || a.perfil) })]);
+  const icone_ = el("span", { className: "rule-icon safe", innerHTML: icone(iconeAtividade(id, a), 20) });
+  const titulo = el("div", {}, [el("small", { textContent: PERFIS[a.perfil] || a.perfil }), el("h3", { textContent: a.nome })]);
+  const topo = el("div", { className: "rule-editor-head" }, [icone_, titulo, el("span", { className: "tag", textContent: selo })]);
+  const cartao = el("div", { className: "rule-editor" }, [topo]);
   if (edita && !(id in ATIVIDADES_PADRAO)) {
-    const nome = el("input", { type: "text", value: a.nome, className: "nome-atividade" });
+    const nome = el("input", { type: "text", value: a.nome, className: "rule-name", placeholder: "Nome da atividade" });
     nome.addEventListener("input", () => { a.nome = nome.value; });
     cartao.appendChild(nome);
   }
   cartao.appendChild(secaoRegras(a, "adiar", "Adiar quando qualquer um destes critérios ocorrer", edita));
   cartao.appendChild(secaoRegras(a, "atencao", "Atenção quando qualquer um destes critérios ocorrer", edita));
-  cartao.appendChild(el("p", { className: "mudo", textContent: "Liberado: quando nenhum critério acima se aplica." }));
+  cartao.appendChild(el("p", { className: "rule-free", textContent: "Liberado: quando nenhum critério acima se aplica." }));
   if (edita) {
-    const acoes = el("div", { className: "botoes" });
-    const salvar = el("button", { type: "button", className: "cheio peq", textContent: "Salvar regras" });
+    const acoes = el("div", { className: "rule-actions" });
+    const salvar = el("button", { type: "button", className: "btn-sm solid", textContent: "Salvar regras" });
     salvar.addEventListener("click", async () => {
       try {
         await salvarAtividade(id, a);
@@ -1062,12 +1340,12 @@ function cartaoRegras(id, base, edita) {
       } catch (e) { statusRegras("Não foi possível salvar: " + e.message, true); }
     });
     acoes.appendChild(salvar);
-    const descartar = el("button", { type: "button", className: "contorno peq", textContent: "Descartar alterações" });
+    const descartar = el("button", { type: "button", className: "btn-sm", textContent: "Descartar alterações" });
     descartar.addEventListener("click", () => { delete estado.rascunho[id]; statusRegras("Alterações descartadas.", false); renderRegras(); });
     acoes.appendChild(descartar);
     if (personalizada) {
       const nova = !(id in ATIVIDADES_PADRAO);
-      const rest = el("button", { type: "button", className: "contorno peq", textContent: nova ? "Excluir atividade" : "Restaurar padrão" });
+      const rest = el("button", { type: "button", className: "btn-sm", textContent: nova ? "Excluir atividade" : "Restaurar padrão" });
       rest.addEventListener("click", async () => {
         try {
           await restaurarAtividade(id);
@@ -1086,7 +1364,7 @@ function formNovaAtividade() {
   const sel = el("select");
   estado.conta.perfis.forEach(p => sel.appendChild(el("option", { value: p, textContent: PERFIS[p] })));
   const nome = el("input", { type: "text", placeholder: "Nome da nova atividade" });
-  const b = el("button", { type: "button", className: "contorno", textContent: "Criar atividade" });
+  const b = el("button", { type: "button", className: "btn-sm solid", textContent: "Criar atividade" });
   b.addEventListener("click", async () => {
     try {
       await criarAtividade(nome.value, sel.value);
@@ -1094,7 +1372,7 @@ function formNovaAtividade() {
       renderRegras(); renderTudo();
     } catch (e) { statusRegras(e.message, true); }
   });
-  return el("div", { className: "nova-atividade" }, [el("h3", { textContent: "Nova atividade" }), nome, sel, b]);
+  return el("div", { className: "new-activity" }, [el("h3", { textContent: "Nova atividade" }), nome, sel, b]);
 }
 function renderRegras() {
   const raiz = $("regras-conteudo");
@@ -1102,7 +1380,11 @@ function renderRegras() {
   raiz.innerHTML = "";
   texto("faixa-regras", textoFaixaConta());
   const edita = !!estado.conta && estado.conta.papel === "especialista";
-  Object.entries(atividadesAtivas()).forEach(([id, a]) => raiz.appendChild(cartaoRegras(id, a, edita)));
+  const busca = estado.buscaRegras.trim().toLowerCase();
+  const itens = Object.entries(atividadesAtivas()).filter(([, a]) =>
+    (estado.filtroRegras === "todos" || a.perfil === estado.filtroRegras) && (!busca || a.nome.toLowerCase().includes(busca)));
+  itens.forEach(([id, a]) => raiz.appendChild(cartaoRegras(id, a, edita)));
+  if (!itens.length) raiz.appendChild(el("p", { className: "muted-note", textContent: "Nenhuma atividade encontrada para esse filtro." }));
   if (edita) raiz.appendChild(formNovaAtividade());
 }
 
@@ -1111,17 +1393,23 @@ let modoModal = "entrar";
 function definirModoModal(modo) {
   modoModal = modo;
   const local = modoLocal();
-  $("tab-entrar").classList.toggle("ativa", modo === "entrar");
-  $("tab-criar").classList.toggle("ativa", modo === "criar");
+  $("tab-entrar").classList.toggle("active", modo === "entrar");
+  $("tab-criar").classList.toggle("active", modo === "criar");
   ["campo-nome", "campo-papel", "campo-perfis"].forEach(id => $(id).classList.toggle("oculto", modo !== "criar"));
   ["campo-email", "campo-senha"].forEach(id => $(id).classList.toggle("oculto", local));
-  $("c-enviar").textContent = modo === "criar" ? "Criar conta" : (local ? "Continuar" : "Entrar");
+  texto("c-enviar-txt", modo === "criar" ? "Criar minha conta" : (local ? "Continuar" : "Entrar na minha conta"));
+  texto("auth-titulo", modo === "criar" ? "Crie sua conta" : "Que bom ter você de volta");
+  texto("auth-sub", modo === "criar" ? "Personalize as regras e acompanhe sua estação de qualquer lugar." : "Entre para salvar suas preferências e receber alertas.");
+  $("c-senha").autocomplete = modo === "criar" ? "new-password" : "current-password";
+  $("c-senha").placeholder = modo === "criar" ? "Mínimo de 6 caracteres" : "Digite sua senha";
   const c = lerContaLocal();
-  $("aviso-modo").textContent = local
+  texto("aviso-modo", local
     ? "Modo demonstração: o perfil fica só neste navegador e não usa senha." + (modo === "entrar" && c ? ` Perfil salvo: ${c.nome}.` : "")
-    : "";
+    : "");
+  $("aviso-modo").classList.toggle("oculto", !$("aviso-modo").textContent);
   $("c-erro").textContent = "";
 }
+function abrirModal(modo) { definirModoModal(modo || "entrar"); $("dlg-conta").showModal(); }
 async function enviarModal() {
   const erro = $("c-erro");
   erro.textContent = "";
@@ -1143,11 +1431,16 @@ async function enviarModal() {
   finally { $("c-enviar").disabled = false; }
 }
 function ligarConta() {
-  $("btn-conta").addEventListener("click", () => { definirModoModal("entrar"); $("dlg-conta").showModal(); });
+  const dlg = $("dlg-conta");
+  $("btn-conta").addEventListener("click", () => abrirModal("entrar"));
+  $("btn-conta-lado").addEventListener("click", () => { if (!estado.conta) abrirModal("entrar"); else irParaAba("regras"); });
   $("btn-sair").addEventListener("click", () => { contaSair(); renderTudo(); renderRegras(); });
   $("tab-entrar").addEventListener("click", () => definirModoModal("entrar"));
   $("tab-criar").addEventListener("click", () => definirModoModal("criar"));
-  $("c-cancelar").addEventListener("click", () => $("dlg-conta").close());
+  $("c-cancelar").addEventListener("click", () => dlg.close());
+  $("c-fechar").addEventListener("click", () => dlg.close());
+  dlg.addEventListener("mousedown", e => { if (e.target === dlg) dlg.close(); });
+  $("c-ver").addEventListener("click", () => { const i = $("c-senha"); i.type = i.type === "password" ? "text" : "password"; });
   $("form-conta").addEventListener("submit", e => { e.preventDefault(); enviarModal(); });
 }
 
@@ -1163,19 +1456,55 @@ async function atualizarApi() {
   renderTudo();
 }
 
+/* ------------------------------ navegação ------------------------------ */
+function fecharMenu() {
+  $("sidebar").classList.remove("mobile-open");
+  $("nav-scrim").classList.add("oculto");
+}
+function irParaAba(id) {
+  const b = document.querySelector(`#abas button[data-aba="${id}"]`);
+  if (!b) return;
+  document.querySelectorAll("#abas button").forEach(x => x.classList.toggle("active", x === b));
+  document.querySelectorAll(".aba").forEach(x => x.classList.toggle("ativa", x.id === id));
+  texto("crumb", b.dataset.titulo);
+  if (id === "regras") renderRegras();
+  fecharMenu();
+  window.scrollTo({ top: 0 });
+  try { history.replaceState(null, "", "#" + id); } catch (e) { /* ignora */ }
+  window.dispatchEvent(new Event("resize"));
+}
+
 function iniciar() {
+  montarIcones();
+  if (typeof Chart !== "undefined") {
+    Chart.defaults.font.family = '"DM Sans", system-ui, sans-serif';
+    Chart.defaults.font.size = 11;
+    Chart.defaults.color = COR.mudo;
+    Object.assign(Chart.defaults.plugins.tooltip, { backgroundColor: "#172724", padding: 10, cornerRadius: 8, titleFont: { weight: "600" }, boxPadding: 4 });
+  }
   texto("local", CONFIG.localNome);
-  document.querySelectorAll("#abas button").forEach(b => b.addEventListener("click", () => {
-    document.querySelectorAll("#abas button").forEach(x => x.classList.remove("ativa"));
-    document.querySelectorAll(".aba").forEach(x => x.classList.remove("ativa"));
-    b.classList.add("ativa"); $(b.dataset.aba).classList.add("ativa");
-    if (b.dataset.aba === "regras") renderRegras();
-    window.dispatchEvent(new Event("resize"));
-  }));
+  saudacao();
+  document.querySelectorAll("#abas button").forEach(b => b.addEventListener("click", () => irParaAba(b.dataset.aba)));
+  document.querySelectorAll("[data-ir]").forEach(b => b.addEventListener("click", () => irParaAba(b.dataset.ir)));
+  $("menu-toggle").addEventListener("click", () => {
+    const abrir = !$("sidebar").classList.contains("mobile-open");
+    $("sidebar").classList.toggle("mobile-open", abrir);
+    $("nav-scrim").classList.toggle("oculto", !abrir);
+  });
+  $("nav-scrim").addEventListener("click", fecharMenu);
+  $("btn-sino").addEventListener("click", () => {
+    irParaAba("visao");
+    setTimeout(() => $("alertas").scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+  });
   document.querySelectorAll("#periodos button").forEach(b => b.addEventListener("click", () => {
-    document.querySelectorAll("#periodos button").forEach(x => x.classList.remove("ativa"));
-    b.classList.add("ativa"); estado.periodo = b.dataset.periodo; renderHistorico();
+    document.querySelectorAll("#periodos button").forEach(x => x.classList.remove("active"));
+    b.classList.add("active"); estado.periodo = b.dataset.periodo; renderHistorico();
   }));
+  document.querySelectorAll("#filtro-regras button").forEach(b => b.addEventListener("click", () => {
+    document.querySelectorAll("#filtro-regras button").forEach(x => x.classList.remove("active"));
+    b.classList.add("active"); estado.filtroRegras = b.dataset.filtro; renderRegras();
+  }));
+  $("busca-regras").addEventListener("input", e => { estado.buscaRegras = e.target.value; renderRegras(); });
   $("btn-csv").addEventListener("click", exportarCsv);
   $("btn-zoom-mais").addEventListener("click", () => zoomGraficos(1.5));
   $("btn-zoom-menos").addEventListener("click", () => zoomGraficos(0.67));
@@ -1197,8 +1526,10 @@ function iniciar() {
     $("btn-telegram").disabled = false;
   });
   $("btn-whats").addEventListener("click", () =>
-    window.open("https://wa.me/?text=" + encodeURIComponent(mensagemAviso()), "_blank"));
+    window.open("https://wa.me/?text=" + encodeURIComponent(mensagemAviso()), "_blank", "noopener"));
   ligarConta();
+  const inicial = (location.hash || "").slice(1);
+  if (inicial && document.getElementById(inicial) && document.getElementById(inicial).classList.contains("aba")) irParaAba(inicial);
   restaurarConta();
   atualizar(); atualizarApi();
   setInterval(atualizar, CONFIG.atualizarMs);

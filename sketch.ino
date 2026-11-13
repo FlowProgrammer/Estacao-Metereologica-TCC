@@ -1,5 +1,5 @@
 /*
-  Estação meteorológica IoT (ESP32 + BME280)
+  ClimaSense: estação meteorológica IoT (ESP32 + BME280)
   Versão para simulação no Wokwi, com o BME280 simulado por código.
 
   Fluxo: ESP32 -> Firebase Realtime Database (HTTPS, JSON) -> dashboard web
@@ -286,7 +286,7 @@ void setup() {
   Serial.begin(115200);
   pinMode(PIN_BOTAO, INPUT_PULLUP);
   pinMode(PIN_LED, OUTPUT);
-  Serial.println("\n=== Estação meteorológica IoT ===");
+  Serial.println("\n=== ClimaSense: estação meteorológica IoT ===");
   if (String(FIREBASE_URL).indexOf("SEU-PROJETO") >= 0) {
     Serial.println("ATENÇÃO: troque FIREBASE_URL pela URL do seu Realtime Database.");
   }

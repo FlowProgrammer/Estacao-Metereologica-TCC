@@ -3,244 +3,441 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Estação meteorológica</title>
+  <title>ClimaSense | Estação meteorológica</title>
+  <meta name="description" content="ClimaSense: estação meteorológica IoT com ESP32 e BME280, histórico, previsão de chuva e recomendações de atividades.">
+  <meta name="theme-color" content="#172724">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="manifest" href="site.webmanifest">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body>
+<div class="app-shell">
 
-<header class="topo">
-  <div>
-    <h1>Estação meteorológica</h1>
-    <p class="sub" id="local">SENAI, Feira de Santana (BA)</p>
-  </div>
-  <div class="lado-dir">
-    <div class="status">
-      <span class="ponto" id="ponto"></span>
-      <span id="status-texto">Conectando…</span>
+  <!-- ============================ BARRA LATERAL ============================ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand-mark"><svg class="i" data-i="cloud" data-size="25"></svg></span>
+      <span><strong>Clima</strong><b>Sense</b></span>
     </div>
-    <div class="conta">
-      <button class="contorno peq" id="btn-conta">Entrar ou criar conta</button>
-      <span id="conta-info" class="oculto">
-        <span id="conta-nome"></span>
-        <button class="contorno peq" id="btn-sair">Sair</button>
+    <div class="station-chip">
+      <span class="station-icon"><svg class="i" data-i="gauge" data-size="18"></svg></span>
+      <span>
+        <small>Estação atual</small>
+        <strong id="local">SENAI Feira de Santana</strong>
       </span>
     </div>
-  </div>
-</header>
-
-<nav class="abas" id="abas">
-  <button class="ativa" data-aba="visao">Visão geral</button>
-  <button data-aba="historico">Histórico</button>
-  <button data-aba="previsao">Previsão</button>
-  <button data-aba="atividades">Atividades</button>
-  <button data-aba="regras">Regras</button>
-</nav>
-
-<main>
-
-  <!-- ===================== VISÃO GERAL ===================== -->
-  <section id="visao" class="aba ativa">
-    <div class="leituras">
-      <div class="leitura"><span class="rotulo">Temperatura</span><strong id="v-temp">—</strong><span class="det" id="s-temp"></span></div>
-      <div class="leitura"><span class="rotulo">Umidade do ar</span><strong id="v-umid">—</strong><span class="det" id="s-umid"></span></div>
-      <div class="leitura"><span class="rotulo">Pressão ao nível do mar</span><strong id="v-pres">—</strong><span class="det" id="s-pres"></span></div>
-      <div class="leitura"><span class="rotulo">Ponto de orvalho</span><strong id="v-orv">—</strong><span class="det" id="s-orv"></span></div>
-      <div class="leitura"><span class="rotulo">Índice de calor</span><strong id="v-calor">—</strong><span class="det" id="s-calor"></span></div>
+    <nav class="side-nav" id="abas" aria-label="Navegação principal">
+      <small>MENU</small>
+      <button class="active" data-aba="visao" data-titulo="Visão geral"><svg class="i" data-i="grid" data-size="19"></svg><span>Visão geral</span></button>
+      <button data-aba="historico" data-titulo="Histórico"><svg class="i" data-i="chart" data-size="19"></svg><span>Histórico</span></button>
+      <button data-aba="previsao" data-titulo="Previsão"><svg class="i" data-i="calendar" data-size="19"></svg><span>Previsão</span></button>
+      <button data-aba="atividades" data-titulo="Atividades"><svg class="i" data-i="check" data-size="19"></svg><span>Atividades</span><em id="nav-ativ" class="oculto">0</em></button>
+      <button data-aba="regras" data-titulo="Regras"><svg class="i" data-i="sliders" data-size="19"></svg><span>Regras</span></button>
+    </nav>
+    <div class="side-footer">
+      <div class="station-status">
+        <span class="live-dot wait" id="side-dot"></span>
+        <span>
+          <strong id="side-status">Conectando…</strong>
+          <small id="side-sub">Buscando a estação</small>
+        </span>
+      </div>
+      <button class="user-row" id="btn-conta-lado">
+        <span class="avatar"><svg class="i" data-i="user" data-size="18"></svg></span>
+        <span>
+          <strong id="lado-nome">Acessar conta</strong>
+          <small id="lado-sub">Sincronize seus dados</small>
+        </span>
+        <svg class="i" data-i="chevron" data-size="16"></svg>
+      </button>
     </div>
+  </aside>
 
-    <div class="grade2">
-      <div class="painel">
-        <div class="cab">
+  <div class="main-area">
+
+    <!-- ================================ TOPO ================================ -->
+    <header class="topbar">
+      <button class="menu-toggle" id="menu-toggle" aria-label="Abrir menu"><span></span><span></span><span></span></button>
+      <div class="mobile-brand"><svg class="i" data-i="cloud" data-size="20"></svg> <strong>ClimaSense</strong></div>
+      <div class="breadcrumb"><span>Painel</span><b>/</b><strong id="crumb">Visão geral</strong></div>
+      <div class="header-actions">
+        <button class="icon-button" id="btn-sino" aria-label="Alertas ativos" title="Ver alertas">
+          <svg class="i" data-i="bell" data-size="20"></svg><i class="off" id="sino-ponto"></i>
+        </button>
+        <button class="login-button" id="btn-conta"><svg class="i" data-i="user" data-size="18"></svg><span>Entrar</span></button>
+        <span id="conta-info" class="account-box oculto">
+          <span id="conta-nome"></span>
+          <button class="outline-btn" id="btn-sair"><svg class="i" data-i="logout" data-size="16"></svg> Sair</button>
+        </span>
+      </div>
+    </header>
+
+    <main>
+
+      <!-- ============================ VISÃO GERAL ============================ -->
+      <section id="visao" class="aba page ativa">
+        <div class="page-intro">
           <div>
-            <h2 id="tit-pressao">Pressão nas últimas 24 horas</h2>
-            <p class="mudo">linha cheia: hoje, tracejada: mesmo horário de ontem</p>
+            <span class="eyebrow" id="v-data">HOJE</span>
+            <h1 id="v-saudacao">Bom dia</h1>
+            <p>Aqui está o resumo climático da sua estação agora.</p>
           </div>
-          <div class="dir">
-            <strong id="tend-titulo"></strong>
-            <p class="mudo" id="tend-sub"></p>
+          <div class="outline-btn status-chip"><span class="ponto" id="ponto"></span><span id="status-texto">Conectando…</span></div>
+        </div>
+
+        <section class="weather-hero">
+          <div class="weather-main">
+            <span class="weather-icon" id="h-icone"></span>
+            <div>
+              <span id="h-local">Agora na estação</span>
+              <strong id="v-temp">—<sup>°C</sup></strong>
+              <p id="h-cond">Aguardando leituras</p>
+              <p class="hero-sub" id="s-temp"></p>
+            </div>
+          </div>
+          <div class="weather-facts">
+            <div><svg class="i" data-i="sun" data-size="20"></svg><span><small>Sensação</small><strong id="h-sens">—</strong></span></div>
+            <div><svg class="i" data-i="rain" data-size="20"></svg><span><small>Chuva (API, 3 h)</small><strong id="h-chuva">—</strong></span></div>
+            <div><svg class="i" data-i="wind" data-size="20"></svg><span><small>Vento (API)</small><strong id="h-vento">—</strong></span></div>
+          </div>
+          <div class="updated">
+            <span class="live-dot" id="h-dot"></span>
+            <span><small>Dados em tempo real</small><strong id="h-hora">—</strong></span>
+          </div>
+        </section>
+
+        <section class="metrics-grid">
+          <article class="metric-card">
+            <div class="metric-icon blue"><svg class="i" data-i="droplet" data-size="21"></svg></div>
+            <span class="metric-delta" id="d-umid"></span>
+            <p>Umidade do ar</p>
+            <strong id="v-umid">—</strong>
+            <span class="metric-meta" id="s-umid"></span>
+          </article>
+          <article class="metric-card">
+            <div class="metric-icon purple"><svg class="i" data-i="gauge" data-size="21"></svg></div>
+            <span class="metric-delta" id="d-pres"></span>
+            <p>Pressão ao nível do mar</p>
+            <strong id="v-pres">—</strong>
+            <span class="metric-meta" id="s-pres"></span>
+          </article>
+          <article class="metric-card">
+            <div class="metric-icon mint"><svg class="i" data-i="droplet" data-size="21"></svg></div>
+            <span class="metric-delta" id="d-orv"></span>
+            <p>Ponto de orvalho</p>
+            <strong id="v-orv">—</strong>
+            <span class="metric-meta" id="s-orv"></span>
+          </article>
+          <article class="metric-card">
+            <div class="metric-icon orange"><svg class="i" data-i="sun" data-size="21"></svg></div>
+            <span class="metric-delta" id="d-calor"></span>
+            <p>Índice de calor</p>
+            <strong id="v-calor">—</strong>
+            <span class="metric-meta" id="s-calor"></span>
+          </article>
+        </section>
+
+        <div class="dashboard-grid">
+          <section class="panel hourly-panel">
+            <div class="panel-heading">
+              <div><h2>Previsão por hora</h2><p>Próximas 6 horas (Open-Meteo)</p></div>
+              <button data-ir="previsao">Ver previsão completa <svg class="i" data-i="arrow" data-size="16"></svg></button>
+            </div>
+            <div class="hour-list" id="hour-list"><span class="empty">Consultando a previsão…</span></div>
+            <div class="mini-chart" id="spark" aria-hidden="true"></div>
+          </section>
+          <section class="panel activities-panel">
+            <div class="panel-heading">
+              <div><h2>Recomendações</h2><p>Baseadas nas condições atuais</p></div>
+              <button data-ir="atividades">Ver atividades <svg class="i" data-i="arrow" data-size="16"></svg></button>
+            </div>
+            <div id="recomendacoes"></div>
+          </section>
+        </div>
+
+        <div class="dashboard-grid">
+          <section class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2 id="tit-pressao">Pressão nas últimas 24 horas</h2>
+                <p>linha cheia: hoje · tracejada: mesmo horário de ontem</p>
+              </div>
+              <div class="chart-head-right"><strong id="tend-titulo"></strong><p id="tend-sub"></p></div>
+            </div>
+            <div class="chart-box"><canvas id="graf-pressao"></canvas></div>
+            <p class="muted-note">Arraste para mover. Ctrl + roda do mouse (ou pinça no celular) amplia. Duplo clique restaura.</p>
+            <p class="muted-note" id="nota-pressao"></p>
+          </section>
+          <section class="panel rain-estimate">
+            <div class="panel-heading"><div><h2>Chance de chuva</h2><p>Próximas 3 horas</p></div></div>
+            <span class="label">ESTIMATIVA DA ESTAÇÃO</span>
+            <p class="big-number est" id="est-cat">—</p>
+            <div class="scale"><span id="esc-baixa">baixa</span><span id="esc-media">média</span><span id="esc-alta">alta</span></div>
+            <p class="muted-note" id="est-motivo"></p>
+            <hr>
+            <span class="label">PREVISÃO DA API (OPEN-METEO)</span>
+            <p class="big-number api" id="api-pct">—</p>
+            <div class="rain-bar"><div id="api-barra"></div></div>
+            <p class="muted-note" id="api-info"></p>
+          </section>
+        </div>
+
+        <div class="dashboard-grid">
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Próximas 12 horas</h2><p>probabilidade de chuva segundo a API</p></div></div>
+            <div class="chart-box baixa"><canvas id="graf-api"></canvas></div>
+            <p class="muted-note" id="api-nota"></p>
+          </section>
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Alertas ativos</h2><p>Estação, previsão e atividades</p></div></div>
+            <ul id="alertas" class="alert-list"></ul>
+          </section>
+        </div>
+      </section>
+
+      <!-- ============================== HISTÓRICO ============================== -->
+      <section id="historico" class="aba page">
+        <div class="page-intro">
+          <div>
+            <span class="eyebrow">DADOS DA ESTAÇÃO</span>
+            <h1>Histórico climático</h1>
+            <p>Acompanhe tendências e compare as leituras da sua estação.</p>
+          </div>
+          <button class="outline-btn" id="btn-csv">Exportar CSV <svg class="i" data-i="arrow" data-size="16"></svg></button>
+        </div>
+        <div class="toolbar">
+          <div class="period-tabs" id="periodos">
+            <button class="active" data-periodo="sessao" title="Última sequência contínua de leituras (no máximo 24 h)">Última sessão</button>
+            <button data-periodo="24h">24 h</button>
+            <button data-periodo="7d">7 dias</button>
+            <button data-periodo="tudo">Tudo</button>
+          </div>
+          <div class="toolbar-actions">
+            <button id="btn-zoom-mais" title="Ampliar os gráficos">Ampliar +</button>
+            <button id="btn-zoom-menos" title="Reduzir os gráficos">Reduzir −</button>
+            <button id="btn-zoom-reset" title="Voltar ao zoom original">Restaurar zoom</button>
+            <button id="btn-escala" title="Alterna entre a escala típica (sem os extremos) e a completa">Escala: típica</button>
           </div>
         </div>
-        <div class="caixa-graf"><canvas id="graf-pressao"></canvas></div>
-        <p class="mudo dica">Arraste para mover. Ctrl + roda do mouse (ou pinça no celular) amplia. Duplo clique restaura.</p>
-        <p class="mudo dica" id="nota-pressao"></p>
-      </div>
-
-      <div class="painel">
-        <h2>Chance de chuva nas próximas 3 horas</h2>
-        <p class="rotulo">Estimativa da estação</p>
-        <p class="grande est" id="est-cat">—</p>
-        <div class="escala">
-          <span id="esc-baixa">baixa</span><span id="esc-media">média</span><span id="esc-alta">alta</span>
+        <p class="muted-note" id="nota-escala" style="margin:0 0 10px"></p>
+        <div class="history-grid">
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Temperatura</h2><p>Variação ao longo do período (°C)</p></div><strong class="chart-total" id="tot-temp"></strong></div>
+            <div class="chart-box media"><canvas id="graf-temp"></canvas></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Umidade do ar</h2><p>Variação ao longo do período (%)</p></div><strong class="chart-total" id="tot-umid"></strong></div>
+            <div class="chart-box media"><canvas id="graf-umid"></canvas></div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Pressão ao nível do mar</h2><p>Variação ao longo do período (hPa)</p></div><strong class="chart-total" id="tot-pres"></strong></div>
+            <div class="chart-box media"><canvas id="graf-pres"></canvas></div>
+          </section>
         </div>
-        <p class="mudo" id="est-motivo"></p>
-        <hr>
-        <p class="rotulo">Previsão da API (Open-Meteo)</p>
-        <p class="grande api" id="api-pct">—</p>
-        <div class="barra"><div id="api-barra"></div></div>
-        <p class="mudo" id="api-info"></p>
-      </div>
-    </div>
+        <section class="metrics-grid history-metrics" id="resumo"></section>
+        <p class="muted-note">Arraste um gráfico para movê-lo. Ctrl + roda do mouse (ou pinça no celular) amplia. Duplo clique restaura.</p>
+      </section>
 
-    <div class="grade2">
-      <div class="painel">
-        <h2>Próximas 12 horas</h2>
-        <p class="mudo">probabilidade de chuva segundo a API</p>
-        <div class="caixa-graf baixa"><canvas id="graf-api"></canvas></div>
-        <p class="mudo" id="api-nota"></p>
-      </div>
-      <div class="painel">
-        <h2>Alertas ativos</h2>
-        <ul id="alertas" class="alertas"></ul>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===================== HISTÓRICO ===================== -->
-  <section id="historico" class="aba">
-    <div class="barra-topo">
-      <div class="periodos" id="periodos">
-        <span class="rotulo">Período</span>
-        <button class="ativa" data-periodo="sessao" title="Última sequência contínua de leituras (no máximo 24 h)">Última sessão</button>
-        <button data-periodo="24h">24 h</button>
-        <button data-periodo="7d">7 dias</button>
-        <button data-periodo="tudo">Tudo</button>
-      </div>
-      <div class="botoes">
-        <button class="contorno peq" id="btn-zoom-mais" title="Ampliar os gráficos">Ampliar +</button>
-        <button class="contorno peq" id="btn-zoom-menos" title="Reduzir os gráficos">Reduzir −</button>
-        <button class="contorno peq" id="btn-zoom-reset" title="Voltar ao zoom original">Restaurar zoom</button>
-        <button class="contorno peq" id="btn-escala" title="Alterna entre a escala típica (sem os extremos) e a completa">Escala: típica</button>
-        <button class="contorno" id="btn-csv">Exportar CSV</button>
-      </div>
-    </div>
-    <p class="mudo dica" id="nota-escala"></p>
-    <p class="mudo dica">Arraste um gráfico para movê-lo. Ctrl + roda do mouse (ou pinça no celular) amplia. Duplo clique restaura.</p>
-    <div class="grade2">
-      <div>
-        <div class="painel"><h2>Temperatura (°C)</h2><div class="caixa-graf media"><canvas id="graf-temp"></canvas></div></div>
-        <div class="painel"><h2>Umidade do ar (%)</h2><div class="caixa-graf media"><canvas id="graf-umid"></canvas></div></div>
-        <div class="painel"><h2>Pressão ao nível do mar (hPa)</h2><div class="caixa-graf media"><canvas id="graf-pres"></canvas></div></div>
-      </div>
-      <div class="painel">
-        <h2>Resumo do período</h2>
-        <table class="tabela">
-          <thead><tr><th></th><th>mín.</th><th>média</th><th>máx.</th></tr></thead>
-          <tbody id="resumo"></tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===================== PREVISÃO ===================== -->
-  <section id="previsao" class="aba">
-    <div class="grade2 iguais">
-      <div class="painel">
-        <h2>Como a estação chegou nessa estimativa</h2>
-        <p class="mudo">Pontuação de 0 a 100: abaixo de 35 é baixa, de 35 a 69 é média, 70 ou mais é alta.</p>
-        <div id="fatores"></div>
-        <div class="total">
-          <h3>Pontuação total</h3>
-          <div class="regua">
-            <div class="faixa f1"></div><div class="faixa f2"></div><div class="faixa f3"></div>
-            <div class="marcador" id="marcador"></div>
+      <!-- ============================== PREVISÃO ============================== -->
+      <section id="previsao" class="aba page">
+        <div class="page-intro">
+          <div>
+            <span class="eyebrow">PREVISÃO OPEN-METEO</span>
+            <h1>Próximos dias</h1>
+            <p>Planeje suas atividades com uma visão simples das condições futuras.</p>
           </div>
-          <div class="legenda-regua"><span style="left:17.5%">baixa</span><span style="left:52.5%">média</span><span style="left:85%">alta</span></div>
-          <p class="grande est" id="total-pts">—</p>
-          <p class="mudo" id="total-nota"></p>
         </div>
-      </div>
-      <div class="painel">
-        <h2>Próximas 12 horas (API)</h2>
-        <p class="mudo">A estação estima só as próximas 3 horas. A API cobre horas e dias à frente.</p>
-        <div class="caixa-graf media"><canvas id="graf-api2"></canvas></div>
-        <p class="mudo" id="api-nota2"></p>
-        <h2 class="espaco">Acertos da previsão</h2>
-        <p class="mudo">Para registrar os acertos é preciso saber se choveu de fato. Isso depende de um
-        pluviômetro ou de uma estação do INMET próxima, previsto para a fase 2.</p>
-      </div>
-    </div>
-  </section>
+        <section class="forecast-banner">
+          <div>
+            <span class="weather-icon" id="p-icone"></span>
+            <span>
+              <small>Hoje</small>
+              <strong id="p-cond">Consultando a previsão…</strong>
+              <p id="p-faixa"></p>
+            </span>
+          </div>
+          <span><svg class="i" data-i="rain" data-size="20"></svg><small>Chuva</small><strong id="p-chuva">—</strong></span>
+          <span><svg class="i" data-i="wind" data-size="20"></svg><small>Vento</small><strong id="p-vento">—</strong></span>
+        </section>
 
-  <!-- ===================== ATIVIDADES ===================== -->
-  <section id="atividades" class="aba">
-    <p class="mudo" id="faixa-ativ"></p>
-    <div class="barra-topo">
-      <p class="mudo">Cada atividade tem regras próprias. O nível vale o pior resultado entre as regras.</p>
-      <div class="botoes">
-        <button class="cheio" id="btn-telegram">Enviar aviso agora (Telegram)</button>
-        <button class="contorno" id="btn-whats">Compartilhar no WhatsApp</button>
-      </div>
-    </div>
-    <details class="config-tg">
-      <summary>Configurar o envio pelo Telegram</summary>
-      <p class="mudo">1) No Telegram, converse com o @BotFather, use /newbot e copie o token. 2) Crie um grupo e
-      adicione o bot. 3) Mande uma mensagem no grupo e abra
-      https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates para ver o chat id (número negativo).
-      O token fica só neste navegador. Use um bot só da demonstração e revogue depois.</p>
-      <div class="campos">
-        <label>Token do bot<input type="password" id="tg-token" placeholder="123456:ABC..." autocomplete="off"></label>
-        <label>Chat id do grupo<input type="text" id="tg-chat" placeholder="-1001234567890" autocomplete="off"></label>
-        <button class="contorno" id="btn-tg-salvar">Salvar</button>
-      </div>
-      <label class="auto"><input type="checkbox" id="tg-auto"> Enviar automaticamente quando o nível de uma atividade mudar</label>
-    </details>
-    <p class="mudo" id="tg-status"></p>
-    <div class="cartoes" id="cards"></div>
-    <p class="aviso">Os limites das regras são exemplos e devem ser validados com um professor de educação
-    física e com um técnico agrícola. O vento vem da previsão da API, não de medição local. O aviso é apoio
-    à decisão e não substitui o julgamento do responsável nem alertas oficiais.</p>
-  </section>
+        <div class="forecast-split">
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Como a estação chegou nessa estimativa</h2><p>Pontuação de 0 a 100: abaixo de 35 é baixa, de 35 a 69 é média, 70 ou mais é alta.</p></div></div>
+            <div id="fatores"></div>
+            <div class="total-box">
+              <h3>Pontuação total</h3>
+              <div class="ruler">
+                <div class="f1"></div><div class="f2"></div><div class="f3"></div>
+                <div class="marker" id="marcador"></div>
+              </div>
+              <div class="ruler-legend"><span style="left:17.5%">baixa</span><span style="left:52.5%">média</span><span style="left:85%">alta</span></div>
+              <p class="big-number est" id="total-pts">—</p>
+              <p class="muted-note" id="total-nota" style="margin-top:4px"></p>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-heading"><div><h2>Próximas 12 horas</h2><p>A estação estima só as próximas 3 horas. A API cobre horas e dias à frente.</p></div></div>
+            <div class="chart-box media"><canvas id="graf-api2"></canvas></div>
+            <p class="muted-note" id="api-nota2"></p>
+            <div class="rules-note" style="margin-top:18px">
+              <svg class="i" data-i="shield" data-size="22"></svg>
+              <div><strong>Acertos da previsão</strong><p>Registrar os acertos depende de saber se choveu de fato. Isso exige um pluviômetro ou uma estação do INMET próxima, previsto para a fase 2.</p></div>
+            </div>
+          </section>
+        </div>
 
-  <!-- ===================== REGRAS ===================== -->
-  <section id="regras" class="aba">
-    <p class="mudo" id="faixa-regras"></p>
-    <p class="mudo" id="regras-status"></p>
-    <p class="mudo">Para cada atividade, os critérios definem quando adiar e quando ter atenção.
-    Se nenhum critério se aplicar, a atividade fica liberada.</p>
-    <div class="regras" id="regras-conteudo"></div>
-    <p class="aviso">Os critérios padrão são exemplos. O especialista (professor, técnico agrícola,
-    agrônomo) deve validar ou ajustar os limites para a realidade do local. O sistema é apoio à
-    decisão e não substitui o julgamento do responsável nem alertas oficiais.</p>
-  </section>
+        <section class="panel daily-list">
+          <div class="panel-heading"><div><h2>Previsão para 5 dias</h2><p id="p-local">Feira de Santana, BA</p></div></div>
+          <div id="dias"><div class="day-row empty">Consultando a previsão…</div></div>
+        </section>
+      </section>
 
-</main>
+      <!-- ============================== ATIVIDADES ============================== -->
+      <section id="atividades" class="aba page">
+        <div class="page-intro">
+          <div>
+            <span class="eyebrow">PLANEJAMENTO</span>
+            <h1>Atividades</h1>
+            <p>Decisões claras para sua rotina, atualizadas pelo clima.</p>
+          </div>
+          <div class="activity-actions">
+            <button class="primary-btn" id="btn-telegram"><svg class="i" data-i="bell" data-size="17"></svg> Enviar aviso (Telegram)</button>
+            <button class="outline-btn" id="btn-whats">Compartilhar no WhatsApp</button>
+          </div>
+        </div>
 
-<dialog id="dlg-conta">
+        <section class="activity-feature">
+          <div class="feature-copy">
+            <span class="eyebrow" style="color:#b9d9d0">MELHOR JANELA HOJE</span>
+            <h2 id="janela-titulo">Calculando…</h2>
+            <p id="janela-texto">Aguardando a previsão da API.</p>
+            <div id="janela-chips"></div>
+          </div>
+          <span class="feature-illustration"><svg class="i" data-i="leaf" data-size="72"></svg></span>
+        </section>
+
+        <p class="muted-note" id="faixa-ativ" style="margin:0 0 12px"></p>
+
+        <section class="rules-summary" id="ativ-resumo"></section>
+
+        <div class="rules-toolbar">
+          <p class="muted-note" style="margin:0">Cada atividade tem regras próprias. O nível vale o pior resultado entre as regras.</p>
+        </div>
+        <section class="rule-list" id="cards"></section>
+
+        <details class="tg-config">
+          <summary>Configurar o envio pelo Telegram</summary>
+          <p class="steps">1) No Telegram, converse com o @BotFather, use /newbot e copie o token. 2) Crie um grupo e adicione o bot. 3) Mande uma mensagem no grupo e abra
+            https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates para ver o chat id (número negativo). O token fica só neste navegador. Use um bot só da demonstração e revogue depois.</p>
+          <div class="tg-fields">
+            <label>Token do bot<input type="password" id="tg-token" placeholder="123456:ABC..." autocomplete="off"></label>
+            <label>Chat id do grupo<input type="text" id="tg-chat" placeholder="-1001234567890" autocomplete="off"></label>
+            <button class="btn-sm solid" id="btn-tg-salvar" style="height:38px">Salvar</button>
+          </div>
+          <label class="tg-auto"><input type="checkbox" id="tg-auto"> Enviar automaticamente quando o nível de uma atividade mudar</label>
+        </details>
+        <p class="muted-note" id="tg-status"></p>
+
+        <div class="rules-note" style="margin-top:18px">
+          <svg class="i" data-i="shield" data-size="22"></svg>
+          <div><strong>Como as recomendações são calculadas?</strong><p>Os limites das regras são exemplos e devem ser validados com um professor de educação física e com um técnico agrícola. O vento vem da previsão da API, não de medição local. O aviso é apoio à decisão e não substitui o julgamento do responsável nem alertas oficiais.</p></div>
+          <button data-ir="regras">Ver regras</button>
+        </div>
+      </section>
+
+      <!-- ================================ REGRAS ================================ -->
+      <section id="regras" class="aba page">
+        <div class="page-intro">
+          <div>
+            <span class="eyebrow">AUTOMAÇÕES</span>
+            <h1>Regras de atividades</h1>
+            <p>Para cada atividade, os critérios definem quando adiar e quando ter atenção. Se nenhum se aplicar, a atividade fica liberada.</p>
+          </div>
+        </div>
+        <p class="muted-note" id="faixa-regras" style="margin:0 0 6px"></p>
+        <p class="muted-note" id="regras-status" style="margin:0 0 12px"></p>
+        <div class="rules-toolbar" style="margin-top:6px">
+          <div class="filter-tabs" id="filtro-regras">
+            <button class="active" data-filtro="todos">Todos</button>
+            <button data-filtro="escola">Escolar</button>
+            <button data-filtro="agricola">Agrícola</button>
+          </div>
+          <label class="search-box"><svg class="i" data-i="search" data-size="18"></svg><input id="busca-regras" placeholder="Buscar atividade"></label>
+        </div>
+        <div class="rules-grid" id="regras-conteudo"></div>
+        <div class="rules-note">
+          <svg class="i" data-i="shield" data-size="22"></svg>
+          <div><strong>Quem pode alterar?</strong><p>Os critérios padrão são exemplos. O especialista (professor, técnico agrícola, agrônomo) deve validar ou ajustar os limites para a realidade do local. O sistema é apoio à decisão e não substitui o julgamento do responsável nem alertas oficiais.</p></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <button class="nav-scrim oculto" id="nav-scrim" aria-label="Fechar menu"></button>
+</div>
+
+<!-- ============================ ENTRAR / CRIAR CONTA ============================ -->
+<dialog id="dlg-conta" class="auth-dialog" aria-label="Conta">
   <form id="form-conta">
-    <div class="abas-modal">
-      <button type="button" id="tab-entrar" class="ativa">Entrar</button>
+    <button type="button" class="modal-close" id="c-fechar" aria-label="Fechar"><svg class="i" data-i="close" data-size="20"></svg></button>
+    <div class="auth-brand">
+      <span class="brand-mark"><svg class="i" data-i="cloud" data-size="22"></svg></span>
+      <strong>Clima<b>Sense</b></strong>
+    </div>
+    <div class="auth-heading">
+      <h2 id="auth-titulo">Que bom ter você de volta</h2>
+      <p id="auth-sub">Entre para salvar suas preferências e receber alertas.</p>
+    </div>
+    <div class="auth-tabs">
+      <button type="button" id="tab-entrar" class="active">Entrar</button>
       <button type="button" id="tab-criar">Criar conta</button>
     </div>
-    <p class="mudo" id="aviso-modo"></p>
-    <label id="campo-nome" class="oculto">Nome<input type="text" id="c-nome" autocomplete="name"></label>
-    <label id="campo-email">E-mail<input type="email" id="c-email" autocomplete="email"></label>
-    <label id="campo-senha">Senha<input type="password" id="c-senha" autocomplete="current-password"></label>
+    <p class="auth-note" id="aviso-modo"></p>
+
+    <label class="field oculto" id="campo-nome"><span>Nome completo</span>
+      <div class="input-wrap"><svg class="i" data-i="user" data-size="18"></svg><input type="text" id="c-nome" autocomplete="name" placeholder="Como você gostaria de ser chamado?"></div></label>
+    <label class="field" id="campo-email"><span>E-mail</span>
+      <div class="input-wrap"><span class="mail-icon">@</span><input type="email" id="c-email" autocomplete="email" placeholder="voce@exemplo.com"></div></label>
+    <label class="field" id="campo-senha"><span>Senha</span>
+      <div class="input-wrap"><svg class="i" data-i="shield" data-size="18"></svg><input type="password" id="c-senha" autocomplete="current-password" placeholder="Digite sua senha">
+        <button type="button" id="c-ver" aria-label="Mostrar senha"><svg class="i" data-i="eye" data-size="18"></svg></button></div></label>
+
     <fieldset id="campo-papel" class="oculto">
-      <legend>Tipo de conta</legend>
-      <label class="opcao"><input type="radio" name="c-papel" value="usuario" checked>
-        <span><strong>Usuário</strong><br><span class="mudo">usa as regras padrão do perfil</span></span></label>
-      <label class="opcao"><input type="radio" name="c-papel" value="especialista">
-        <span><strong>Especialista</strong><br><span class="mudo">professor, técnico agrícola ou agrônomo: pode definir os critérios de liberado, atenção e adiar. Nesta versão a escolha não é verificada.</span></span></label>
+      <legend>Como você vai usar a estação?</legend>
+      <div class="choice-grid">
+        <label class="choice"><input type="radio" name="c-papel" value="usuario" checked>
+          <span class="oc"><span class="oc-ic"><svg class="i" data-i="user" data-size="18"></svg></span><strong>Usuário</strong><small>Usa as regras padrão do perfil</small><i></i></span></label>
+        <label class="choice"><input type="radio" name="c-papel" value="especialista">
+          <span class="oc"><span class="oc-ic"><svg class="i" data-i="sliders" data-size="18"></svg></span><strong>Especialista</strong><small>Edita critérios e regras</small><i></i></span></label>
+      </div>
+      <p class="auth-note" style="margin:8px 0 0">Especialista: professor, técnico agrícola ou agrônomo, define os critérios de liberado, atenção e adiar. Nesta versão a escolha não é verificada.</p>
     </fieldset>
     <fieldset id="campo-perfis" class="oculto">
       <legend>Perfil de atividades</legend>
-      <label class="opcao"><input type="checkbox" name="c-perfil" value="escola" checked>
-        <span><strong>Escola e educação física</strong><br><span class="mudo">atividades ao ar livre acadêmicas, educação física, eventos</span></span></label>
-      <label class="opcao"><input type="checkbox" name="c-perfil" value="agricola">
-        <span><strong>Agrícola</strong><br><span class="mudo">pulverização, irrigação, plantio e colheita</span></span></label>
+      <div class="choice-grid">
+        <label class="choice sq"><input type="checkbox" name="c-perfil" value="escola" checked>
+          <span class="oc"><span class="oc-ic"><svg class="i" data-i="book" data-size="18"></svg></span><strong>Escola</strong><small>Educação física e eventos</small><i></i></span></label>
+        <label class="choice sq"><input type="checkbox" name="c-perfil" value="agricola">
+          <span class="oc"><span class="oc-ic"><svg class="i" data-i="leaf" data-size="18"></svg></span><strong>Agrícola</strong><small>Pulverização, irrigação, colheita</small><i></i></span></label>
+      </div>
     </fieldset>
-    <p class="mudo erro" id="c-erro"></p>
-    <div class="botoes">
-      <button type="submit" class="cheio" id="c-enviar">Entrar</button>
-      <button type="button" class="contorno" id="c-cancelar">Cancelar</button>
+
+    <p id="c-erro"></p>
+    <div class="auth-actions">
+      <button type="submit" class="auth-submit" id="c-enviar"><span id="c-enviar-txt">Entrar na minha conta</span><svg class="i" data-i="arrow" data-size="18"></svg></button>
+      <button type="button" class="ghost" id="c-cancelar">Cancelar</button>
     </div>
   </form>
 </dialog>
-
-<footer>Dados da estação via Firebase Realtime Database. Previsão externa: Open-Meteo.</footer>
 
 <script src="script.js"></script>
 </body>
