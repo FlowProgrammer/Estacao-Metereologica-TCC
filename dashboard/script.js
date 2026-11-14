@@ -11,7 +11,11 @@
 const CONFIG = {
   firebaseUrl: "https://estacao-metereologica-50584-default-rtdb.firebaseio.com/",
   apiKey: "AIzaSyAKvbL4f6C-MEYAD_lGusr9OjvKryRQ7Ys",             // Web API Key do Firebase (Authentication). Vazio = perfil local, sem senha.
-  estacao: "est01",
+  estacao: "est01",       // estação padrão (a simulada)
+  estacoes: {             // estações disponíveis: o id precisa ser o mesmo ESTACAO_ID gravado no firmware
+    est01: { nome: "Simulada (Wokwi)", tipo: "simulada" },
+    est02: { nome: "Real (circuito da sala)", tipo: "real" }
+  },
   altitude: 211,          // metros; igual ao ALTITUDE_M do sketch.ino (só usado no modo demonstração)
   lat: -12.27,            // Feira de Santana (BA), aproximado. Ajuste para o seu local.
   lon: -38.97,
@@ -249,14 +253,26 @@ function avaliarAtividade(ativ, vars) {
 }
 
 /* ------------------------------ dados ------------------------------ */
-const estado = { leituras: [], api: null, conta: null, rascunho: {}, descartadas: 0, erro: null, periodo: "sessao", escalaTotal: false, apiErro: null,
+const estado = { estacao: null, localVisitante: null, leituras: [], api: null, conta: null, rascunho: {}, descartadas: 0, erro: null, periodo: "sessao", escalaTotal: false, apiErro: null,
                  expandidas: {}, filtroRegras: "todos", buscaRegras: "" };
+
+/* ---------------- estação e local ativos ----------------
+   Estação: a escolhida no seletor (visitante: lembrada no navegador; conta: salva no perfil).
+   Local: o da conta (CEP informado no cadastro) ou o padrão do CONFIG. Altitude, latitude e
+   longitude vêm daqui: a pressão ao nível do mar é recalculada no dashboard a partir da pressão
+   medida (campo "pe"), então trocar a altitude não exige regravar o firmware. */
+const estacaoValida = id => !!(id && CONFIG.estacoes[id]);
+const idEstacao = () => estacaoValida(estado.estacao) ? estado.estacao : CONFIG.estacao;
+const localPadrao = () => ({ nome: CONFIG.localNome, lat: CONFIG.lat, lon: CONFIG.lon, altitude: CONFIG.altitude });
+const localAtivo = () => (estado.conta && estado.conta.local) || localPadrao();
+const nomeEstacao = () => (CONFIG.estacoes[idEstacao()] || {}).nome || idEstacao();
+const pressaoNivelMar = (pe, alt) => pe / Math.pow(1 - alt / 44330, 5.255);
 
 function gerarDemo() {
   const agora = Math.floor(Date.now() / 1000);
   const passo = 600, n = 3 * 144;
   const out = [];
-  const alt = CONFIG.altitude || 234;
+  const alt = localAtivo().altitude || 234;
   for (let i = n; i >= 0; i--) {
     const ts = agora - i * passo;
     const d = new Date(ts * 1000);
@@ -279,12 +295,14 @@ const leituraValida = l => l.p >= 870 && l.p <= 1090 && l.t >= -20 && l.t <= 60 
 async function buscarLeituras() {
   if (emDemo()) { estado.descartadas = 0; return gerarDemo(); }
   const q = `orderBy=${encodeURIComponent('"$key"')}&limitToLast=${CONFIG.limiteLeituras}`;
-  const r = await fetch(`${CONFIG.firebaseUrl}/estacoes/${CONFIG.estacao}/leituras.json?${q}`);
+  const r = await fetch(`${CONFIG.firebaseUrl}/estacoes/${idEstacao()}/leituras.json?${q}`);
   if (!r.ok) throw new Error("Firebase respondeu HTTP " + r.status);
   const obj = await r.json();
   if (!obj) { estado.descartadas = 0; return []; }
+  const alt = Number(localAtivo().altitude);
   const todas = Object.entries(obj)
     .map(([k, v]) => ({ ts: Number(v.ts ?? k), t: Number(v.t), u: Number(v.u), pe: Number(v.pe), p: Number(v.p) }))
+    .map(l => (isFinite(alt) && isFinite(l.pe) && l.pe > 0 ? { ...l, p: pressaoNivelMar(l.pe, alt) } : l))   // usa a altitude do local ativo
     .filter(l => isFinite(l.ts) && isFinite(l.p) && isFinite(l.t) && isFinite(l.u))
     .sort((a, b) => a.ts - b.ts);
   const validas = todas.filter(leituraValida);
@@ -294,7 +312,7 @@ async function buscarLeituras() {
 
 async function buscarApi() {
   const url = "https://api.open-meteo.com/v1/forecast"
-    + `?latitude=${CONFIG.lat}&longitude=${CONFIG.lon}`
+    + `?latitude=${localAtivo().lat}&longitude=${localAtivo().lon}`
     + "&hourly=precipitation_probability,precipitation,wind_speed_10m,temperature_2m,cloud_cover"
     + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max"
     + `&timezone=${encodeURIComponent(CONFIG.fusoApi)}&timeformat=unixtime&forecast_days=5`;
@@ -617,7 +635,7 @@ function saudacao() {
 
 function renderHero(d) {
   saudacao();
-  texto("h-local", `Agora em ${CONFIG.localNome}`);
+  texto("h-local", `Agora em ${localAtivo().nome} · estação ${nomeEstacao().toLowerCase()}`);
   const cond = condicao();
   const ic = $("h-icone");
   const tipo = cond ? cond.tipo : "sun";
@@ -703,7 +721,7 @@ function renderJanela() {
 
 function renderPrevisaoDias() {
   const a = estado.api;
-  texto("p-local", CONFIG.localNome);
+  texto("p-local", localAtivo().nome);
   if (!a || !a.dias.length) return;
   const hoje = a.dias[0], cond = condicao();
   const tipo = cond ? cond.tipo : "sun";
@@ -958,7 +976,7 @@ function mensagemAviso() {
   const d = derivados();
   if (!d) return "ClimaSense: sem leituras no momento.";
   const ativ = atividadesAtivas();
-  const linhas = [`ClimaSense, ${CONFIG.localNome} (${hhmm(Date.now())})`,
+  const linhas = [`ClimaSense, ${localAtivo().nome} (${hhmm(Date.now())})`,
     `Temperatura ${fmt(d.ult.t)} °C, umidade ${fmt(d.ult.u, 0)} %, pressão ${fmt(d.ult.p)} hPa.`];
   for (const a of Object.values(ativ)) {
     const r = avaliarAtividade(a, d.vars);
@@ -1074,12 +1092,19 @@ function normalizarRegras(r) {
   }
   return out;
 }
+function normalizarLocal(l) {
+  if (!l) return null;
+  const lat = Number(l.lat), lon = Number(l.lon), altitude = Number(l.altitude);
+  if (!(Math.abs(lat) <= 90) || !(Math.abs(lon) <= 180) || !Number.isFinite(altitude)) return null;
+  return { nome: String(l.nome || "Local da estação"), lat, lon, altitude };
+}
 function normalizarConta(c) {
   const perfis = lista(c.perfis).filter(p => PERFIS[p]);
   return {
     uid: c.uid || "", email: c.email || "", nome: String(c.nome || ""),
     papel: c.papel === "especialista" ? "especialista" : "usuario",
-    perfis: perfis.length ? perfis : ["escola"], regras: normalizarRegras(c.regras)
+    perfis: perfis.length ? perfis : ["escola"], regras: normalizarRegras(c.regras),
+    estacao: estacaoValida(c.estacao) ? c.estacao : null, local: normalizarLocal(c.local)
   };
 }
 
@@ -1151,24 +1176,29 @@ async function dbUsuario(metodo, caminho, corpo) {
   return r.json();
 }
 
-async function contaCriar({ nome, email, senha, papel, perfis }) {
+async function contaCriar({ nome, email, senha, papel, perfis, estacao, local }) {
   if (!String(nome || "").trim()) throw new Error("Informe seu nome.");
   if (!perfis || !perfis.length) throw new Error("Escolha pelo menos um perfil.");
   papel = papel === "especialista" ? "especialista" : "usuario";
+  estacao = estacaoValida(estacao) ? estacao : CONFIG.estacao;
+  local = normalizarLocal(local);   // só nome, coordenadas e altitude; CEP e rua não são guardados (RNF16)
   if (modoLocal()) {
-    const c = { uid: "local", email: "", nome: nome.trim(), papel, perfis, regras: {} };
+    const c = { uid: "local", email: "", nome: nome.trim(), papel, perfis, regras: {}, estacao, local };
     localStorage.setItem("conta_local", JSON.stringify(c));
     localStorage.setItem("conta_local_ativa", "1");
     estado.conta = normalizarConta(c);
+    aplicarEstacaoDaConta();
     return;
   }
   if (!String(email || "").trim()) throw new Error("Informe o e-mail.");
   const j = await idCall("signUp", { email, password: senha });
   const s = gravarSessaoDe(j, email);
-  const dados = { nome: nome.trim(), email, papel, perfis, criadoEm: Date.now() };
+  const dados = { nome: nome.trim(), email, papel, perfis, estacao, criadoEm: Date.now() };
+  if (local) dados.local = local;
   try { await dbUsuario("PUT", "", dados); }
   catch (e) { throw new Error("Conta criada, mas não foi possível salvar o perfil: " + e.message); }
   estado.conta = normalizarConta({ uid: s.uid, ...dados });
+  aplicarEstacaoDaConta();
 }
 async function carregarContaRemota() {
   const s = SESSAO.ler();
@@ -1178,9 +1208,11 @@ async function carregarContaRemota() {
     const dados = { nome: (s.email || "").split("@")[0], email: s.email, papel: "usuario", perfis: ["escola"], criadoEm: Date.now() };
     await dbUsuario("PUT", "", dados);
     estado.conta = normalizarConta({ uid: s.uid, ...dados });
+    aplicarEstacaoDaConta();
     return;
   }
   estado.conta = normalizarConta({ ...d, uid: s.uid, email: d.email || s.email });
+  aplicarEstacaoDaConta();
 }
 async function contaEntrar(email, senha) {
   const j = await idCall("signInWithPassword", { email, password: senha });
@@ -1192,6 +1224,7 @@ function contaContinuarLocal() {
   if (!c) throw new Error("Nenhum perfil neste navegador. Crie uma conta.");
   localStorage.setItem("conta_local_ativa", "1");
   estado.conta = normalizarConta(c);
+  aplicarEstacaoDaConta();
 }
 function contaSair() {
   if (modoLocal()) localStorage.setItem("conta_local_ativa", "0"); else SESSAO.limpar();
@@ -1201,7 +1234,7 @@ async function restaurarConta() {
   try {
     if (modoLocal()) {
       const c = lerContaLocal();
-      if (c && localStorage.getItem("conta_local_ativa") === "1") estado.conta = normalizarConta(c);
+      if (c && localStorage.getItem("conta_local_ativa") === "1") { estado.conta = normalizarConta(c); aplicarEstacaoDaConta(); }
     } else if (SESSAO.ler()) await carregarContaRemota();
   } catch (e) { SESSAO.limpar(); }
   renderTudo(); renderRegras();
@@ -1405,6 +1438,97 @@ function renderRegras() {
   if (edita) raiz.appendChild(formNovaAtividade());
 }
 
+/* ------------------------------ CEP, local e estação ------------------------------ */
+const UF_ESTADO = { AC: "Acre", AL: "Alagoas", AP: "Amapá", AM: "Amazonas", BA: "Bahia", CE: "Ceará", DF: "Distrito Federal",
+  ES: "Espírito Santo", GO: "Goiás", MA: "Maranhão", MT: "Mato Grosso", MS: "Mato Grosso do Sul", MG: "Minas Gerais", PA: "Pará",
+  PB: "Paraíba", PR: "Paraná", PE: "Pernambuco", PI: "Piauí", RJ: "Rio de Janeiro", RN: "Rio Grande do Norte",
+  RS: "Rio Grande do Sul", RO: "Rondônia", RR: "Roraima", SC: "Santa Catarina", SP: "São Paulo", SE: "Sergipe", TO: "Tocantins" };
+
+/* CEP -> endereço (BrasilAPI, com ViaCEP de reserva) -> coordenadas (BrasilAPI ou, na falta, o centro da
+   cidade pela geocodificação da Open-Meteo) -> altitude (API de elevação da Open-Meteo, ~90 m de resolução).
+   Sem coordenadas exatas do CEP, usa a cidade e avisa; a altitude então é a do centro da cidade. */
+async function buscarCep(cep) {
+  cep = String(cep || "").replace(/\D/g, "");
+  if (cep.length !== 8) throw new Error("Informe um CEP com 8 números.");
+  const json = async url => { const r = await fetch(url); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); };
+  let end = null, lat = null, lon = null, exato = false;
+  try {
+    const j = await json(`https://brasilapi.com.br/api/cep/v2/${cep}`);
+    end = { cidade: j.city, uf: j.state, bairro: j.neighborhood };
+    const c = j.location && j.location.coordinates;
+    if (c && Number.isFinite(Number(c.latitude)) && Number.isFinite(Number(c.longitude)) && c.latitude !== "" && c.longitude !== "") {
+      lat = Number(c.latitude); lon = Number(c.longitude); exato = true;
+    }
+  } catch (e) { /* tenta o ViaCEP */ }
+  if (!end) {
+    try {
+      const j = await json(`https://viacep.com.br/ws/${cep}/json/`);
+      if (j.erro) throw new Error("CEP não encontrado.");
+      end = { cidade: j.localidade, uf: j.uf, bairro: j.bairro };
+    } catch (e) { throw new Error(e.message === "CEP não encontrado." ? e.message : "Não foi possível consultar o CEP agora. Tente de novo."); }
+  }
+  let altGeo = null;
+  if (lat === null) {
+    try {
+      const g = await json(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(end.cidade)}&count=10&language=pt&countryCode=BR`);
+      const estadoNome = UF_ESTADO[end.uf];
+      const achado = (g.results || []).find(x => x.admin1 === estadoNome) || (g.results || [])[0];
+      if (achado) { lat = achado.latitude; lon = achado.longitude; altGeo = achado.elevation; }
+    } catch (e) { /* segue sem coordenadas */ }
+  }
+  if (lat === null) throw new Error("Achei o endereço, mas não as coordenadas. Tente outro CEP da mesma cidade.");
+  let altitude = altGeo;
+  try {
+    const el = await json(`https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lon}`);
+    if (el && Array.isArray(el.elevation) && Number.isFinite(el.elevation[0])) altitude = el.elevation[0];
+  } catch (e) { /* usa a altitude da geocodificação, se houver */ }
+  if (!Number.isFinite(altitude)) throw new Error("Não consegui obter a altitude desse local.");
+  const nome = [end.bairro, end.cidade && `${end.cidade} (${end.uf})`].filter(Boolean).join(", ");
+  return { nome, lat: Math.round(lat * 1000) / 1000, lon: Math.round(lon * 1000) / 1000, altitude: Math.round(altitude), exato };
+}
+
+function preencherSeletoresEstacao() {
+  document.querySelectorAll("select[data-estacoes]").forEach(sel => {
+    sel.innerHTML = "";
+    Object.entries(CONFIG.estacoes).forEach(([id, e]) => sel.appendChild(el("option", { value: id, textContent: e.nome })));
+    sel.value = idEstacao();
+  });
+}
+function atualizarTextosLocal() {
+  texto("local", localAtivo().nome);
+  document.querySelectorAll("select[data-estacoes]").forEach(sel => { if (sel.id !== "c-estacao") sel.value = idEstacao(); });
+}
+function iniciarEstacao() {
+  const guardada = localStorage.getItem("estacao");
+  if (estacaoValida(guardada)) estado.estacao = guardada;
+  preencherSeletoresEstacao();
+  atualizarTextosLocal();
+  $("sel-estacao").addEventListener("change", e => escolherEstacao(e.target.value));
+}
+function aplicarEstacaoDaConta() {            // ao entrar, vale a estação salva na conta
+  if (estado.conta && estado.conta.estacao) estado.estacao = estado.conta.estacao;
+  atualizarTextosLocal();
+}
+async function escolherEstacao(id) {
+  if (!estacaoValida(id)) return;
+  estado.estacao = id; estado.leituras = [];
+  localStorage.setItem("estacao", id);
+  if (estado.conta && !modoLocal()) { try { await dbUsuario("PUT", "/estacao", id); estado.conta.estacao = id; } catch (e) { /* a escolha vale nesta sessão */ } }
+  else if (estado.conta) { const c = lerContaLocal() || {}; c.estacao = id; localStorage.setItem("conta_local", JSON.stringify(c)); estado.conta.estacao = id; }
+  Object.keys(graficos).forEach(k => { try { graficos[k].destroy(); } catch (e) { /* ignora */ } delete graficos[k]; });
+  renderTudo(); atualizar();
+}
+let localCadastro = null;                      // resultado da última busca de CEP no cadastro
+async function acharCepCadastro() {
+  const res = $("c-cep-res"), btn = $("c-cep-buscar");
+  res.className = "auth-note"; res.textContent = "Buscando…"; btn.disabled = true; localCadastro = null;
+  try {
+    localCadastro = await buscarCep($("c-cep").value);
+    res.textContent = `${localCadastro.nome} · altitude ${localCadastro.altitude} m` + (localCadastro.exato ? "" : " (centro da cidade)");
+  } catch (e) { res.className = "auth-note erro"; res.textContent = e.message; }
+  finally { btn.disabled = false; }
+}
+
 /* ------------------------------ janela de login ------------------------------ */
 let modoModal = "entrar";
 function definirModoModal(modo) {
@@ -1412,7 +1536,7 @@ function definirModoModal(modo) {
   const local = modoLocal();
   $("tab-entrar").classList.toggle("active", modo === "entrar");
   $("tab-criar").classList.toggle("active", modo === "criar");
-  ["campo-nome", "campo-papel", "campo-perfis"].forEach(id => $(id).classList.toggle("oculto", modo !== "criar"));
+  ["campo-nome", "campo-papel", "campo-perfis", "campo-local"].forEach(id => $(id).classList.toggle("oculto", modo !== "criar"));
   ["campo-email", "campo-senha"].forEach(id => $(id).classList.toggle("oculto", local));
   texto("c-enviar-txt", modo === "criar" ? "Criar minha conta" : (local ? "Continuar" : "Entrar na minha conta"));
   texto("auth-titulo", modo === "criar" ? "Crie sua conta" : "Que bom ter você de volta");
@@ -1434,7 +1558,10 @@ async function enviarModal() {
   try {
     if (modoModal === "criar") {
       const papel = document.querySelector('input[name="c-papel"]:checked');
+      if ($("c-cep").value.trim() && !localCadastro) await acharCepCadastro();   // CEP digitado e ainda não buscado
+      if ($("c-cep").value.trim() && !localCadastro) throw new Error("Corrija o CEP ou deixe o campo em branco para usar o local padrão.");
       await contaCriar({
+        estacao: $("c-estacao").value, local: localCadastro,
         nome: $("c-nome").value, email: $("c-email").value.trim(), senha: $("c-senha").value,
         papel: papel ? papel.value : "usuario",
         perfis: Array.from(document.querySelectorAll('input[name="c-perfil"]:checked')).map(x => x.value)
@@ -1458,6 +1585,8 @@ function ligarConta() {
   $("c-fechar").addEventListener("click", () => dlg.close());
   dlg.addEventListener("mousedown", e => { if (e.target === dlg) dlg.close(); });
   $("c-ver").addEventListener("click", () => { const i = $("c-senha"); i.type = i.type === "password" ? "text" : "password"; });
+  $("c-cep-buscar").addEventListener("click", acharCepCadastro);
+  $("c-cep").addEventListener("input", () => { localCadastro = null; texto("c-cep-res", ""); });
   $("form-conta").addEventListener("submit", e => { e.preventDefault(); enviarModal(); });
 }
 
@@ -1499,7 +1628,7 @@ function iniciar() {
     Chart.defaults.color = COR.mudo;
     Object.assign(Chart.defaults.plugins.tooltip, { backgroundColor: "#172724", padding: 10, cornerRadius: 8, titleFont: { weight: "600" }, boxPadding: 4 });
   }
-  texto("local", CONFIG.localNome);
+  iniciarEstacao();
   saudacao();
   document.querySelectorAll("#abas button").forEach(b => b.addEventListener("click", () => irParaAba(b.dataset.aba)));
   document.querySelectorAll("[data-ir]").forEach(b => b.addEventListener("click", () => irParaAba(b.dataset.ir)));
@@ -1557,5 +1686,5 @@ if (typeof document !== "undefined") {
   document.addEventListener("DOMContentLoaded", iniciar);
 }
 if (typeof module !== "undefined") {
-  module.exports = { inicioUltimaSessao, comQuebras, reduzir, pontoIsolado, leituraValida, buscarLeituras, CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, restaurarAtividade, criarAtividade, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
+  module.exports = { buscarCep, normalizarLocal, pressaoNivelMar, idEstacao, localAtivo, inicioUltimaSessao, comQuebras, reduzir, pontoIsolado, leituraValida, buscarLeituras, CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, restaurarAtividade, criarAtividade, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
 }

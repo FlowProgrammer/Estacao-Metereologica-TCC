@@ -35,6 +35,29 @@ python3 -m http.server 8000
 A URL do banco e as demais opções ficam em `CONFIG`, no início de `dashboard/script.js`.
 Se `firebaseUrl` contiver `SEU-PROJETO`, o dashboard roda em modo demonstração com dados simulados.
 
+## Estações e local
+
+O dashboard acompanha uma estação por vez, escolhida no seletor da barra lateral ou ao criar a conta:
+
+| Id | Estação | Firmware | Envio |
+|---|---|---|---|
+| `est01` | Simulada (Wokwi), aceita comandos | `SIMULAR_BME280 = 1` | a cada 10 s |
+| `est02` | Real (ESP32 + BME280 na sala) | `SIMULAR_BME280 = 0` | a cada 60 s |
+
+Cada estação grava em `/estacoes/{id}/leituras`, então o histórico de uma não se mistura com o da outra.
+Para acrescentar uma estação, grave o firmware com outro `ESTACAO_ID` e inclua o id em `CONFIG.estacoes` no `script.js`.
+
+No cadastro, o CEP (opcional) é consultado na BrasilAPI (com ViaCEP de reserva) e na Open-Meteo, que devolve
+coordenadas e altitude. Esses dados ajustam a previsão e a pressão ao nível do mar, recalculada no dashboard a partir da
+pressão medida (`pe`). Só nome do local, coordenadas e altitude ficam na conta; o CEP e o endereço não são guardados.
+Use o CEP do local onde a estação está: a altitude errada desloca a pressão (cerca de 1 hPa a cada 8 m).
+
+Comandos da estação simulada (monitor serial do Wokwi, com Enter): `t` (modo tempestade), `temp 33.5`, `umid 85`,
+`pres 1003` (hPa ao nível do mar) e `auto` (volta ao automático).
+
+Wi-Fi da estação real: crie `segredos.h` ao lado do `sketch.ino` com `WIFI_SSID_REAL` e `WIFI_SENHA_REAL`
+(o arquivo está no `.gitignore`).
+
 ## Observações
 
 - Configure as regras de segurança do Realtime Database; não deixe o banco aberto para escrita.

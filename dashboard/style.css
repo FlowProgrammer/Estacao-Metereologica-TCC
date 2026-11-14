@@ -1874,3 +1874,11 @@ dialog.auth-dialog[open] { animation: fadeIn 0.2s; }
 .aba { display: none; }
 .aba.ativa { display: block; }
 .metric-card > p { padding-right: 44px; line-height: 1.3; }
+
+/* seletor de estação (barra lateral) e campos de CEP */
+.station-select { margin-top: 4px; max-width: 100%; padding: 4px 6px; border: 1px solid rgba(255,255,255,.25); border-radius: 8px;
+  background: rgba(255,255,255,.08); color: inherit; font-size: 11px; cursor: pointer; }
+.station-select option { color: #182724; background: #fff; }
+#c-estacao { width: 100%; padding: 10px 12px; border: 0; background: transparent; }
+#c-cep { flex: 1; min-width: 0; }
+.auth-note.erro { color: #b5483a; }

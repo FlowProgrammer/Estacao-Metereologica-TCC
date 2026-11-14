@@ -16,7 +16,7 @@
      O botão no GPIO 4 (ligado ao GND) também liga/desliga o modo tempestade.
   4) Com o sensor real, mude SIMULAR_BME280 para 0 (ligação: SDA no GPIO 21,
      SCL no GPIO 22, VCC no 3V3) e instale as bibliotecas Adafruit BME280
-     e Adafruit Unified Sensor.
+     e Adafruit Unified Sensor. A estação real usa o id "est02" e envia a cada 60 s.
 */
 
 #include <WiFi.h>
@@ -35,15 +35,37 @@
 #endif
 
 // ---------------- Configuração ----------------
-const char* WIFI_SSID  = "Wokwi-GUEST";   // rede padrão do Wokwi
-const char* WIFI_SENHA = "";
-const int   WIFI_CANAL = 6;
+// Duas estações com o mesmo código, escolhidas por SIMULAR_BME280:
+//   1 = simulada (Wokwi):  id "est01", envio a cada 10 s, rede Wokwi-GUEST
+//   0 = real (circuito):   id "est02", envio a cada 60 s, Wi-Fi 2,4 GHz da sala ou do celular
+// O id precisa ser o mesmo de CONFIG.estacoes no dashboard/script.js.
+#if SIMULAR_BME280
+  const char* ESTACAO_ID = "est01";
+  const char* WIFI_SSID  = "Wokwi-GUEST";
+  const char* WIFI_SENHA = "";
+  const int   WIFI_CANAL = 6;
+  const unsigned long INTERVALO_MS = 10000;   // simulação: 10 s
+#else
+  // Senha do Wi-Fi fora do Git: crie segredos.h (já listado no .gitignore) com
+  //   #define WIFI_SSID_REAL  "nome-da-rede"
+  //   #define WIFI_SENHA_REAL "senha"
+  #if __has_include("segredos.h")
+    #include "segredos.h"
+  #endif
+  #ifndef WIFI_SSID_REAL
+    #define WIFI_SSID_REAL  "SEU_WIFI"
+    #define WIFI_SENHA_REAL "SUA_SENHA"
+  #endif
+  const char* ESTACAO_ID = "est02";
+  const char* WIFI_SSID  = WIFI_SSID_REAL;
+  const char* WIFI_SENHA = WIFI_SENHA_REAL;
+  const int   WIFI_CANAL = 0;                 // 0 = qualquer canal
+  const unsigned long INTERVALO_MS = 60000;   // prova de conceito: 60 s (operação: 300000)
+#endif
 
 const char* FIREBASE_URL = "https://estacao-metereologica-50584-default-rtdb.firebaseio.com/";
-const char* ESTACAO_ID   = "est01";
 
-const float ALTITUDE_M = 211;            // ajuste para a altitude do seu local
-const unsigned long INTERVALO_MS = 10000;  // simulação: 10 s. Estação real: 300000 (5 min)
+const float ALTITUDE_M = 211;            // altitude do local; o dashboard recalcula a pressão ao nível do mar a partir de "pe" com a altitude da conta
 const unsigned long INTERVALO_MIN_ENVIO_MS = 3000; // trava anti-flood: nunca envia mais de 1 leitura a cada 3 s
 const int   TENTATIVAS_ENVIO = 3;          // tentativas por requisição quando a rede falha (retorno negativo)
 const unsigned long ESPERA_RETENTATIVA_MS = 1500;  // espera base entre tentativas (cresce a cada falha)
@@ -143,8 +165,12 @@ bool iniciarSensor() {
   return sensor.begin();
 #else
   Wire.begin(21, 22);
-  if (!bme.begin(0x76)) {
-    Serial.println("BME280 não encontrado em 0x76. Teste 0x77 ou confira as ligações.");
+  if (!bme.begin(0x76) && !bme.begin(0x77)) {
+    Serial.println("ERRO: BME280 não encontrado (0x76 e 0x77). Confira SDA no GPIO 21, SCL no GPIO 22 e o VCC. Nenhuma leitura será enviada.");
+    return false;
+  }
+  if (bme.sensorID() != 0x60) {   // 0x60 = BME280; 0x56 a 0x58 = BMP280 (não mede umidade)
+    Serial.printf("ERRO: o módulo não é um BME280 (ID 0x%02X). Provavelmente é um BMP280, que não mede umidade.\n", bme.sensorID());
     return false;
   }
   return true;

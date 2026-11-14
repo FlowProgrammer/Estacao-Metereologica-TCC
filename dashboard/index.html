@@ -32,6 +32,7 @@
       <span>
         <small>Estação atual</small>
         <strong id="local">SENAI Feira de Santana</strong>
+        <select id="sel-estacao" data-estacoes class="station-select" aria-label="Escolher estação"></select>
       </span>
     </div>
     <nav class="side-nav" id="abas" aria-label="Navegação principal">
@@ -420,6 +421,15 @@
           <span class="oc"><span class="oc-ic"><svg class="i" data-i="sliders" data-size="18"></svg></span><strong>Especialista</strong><small>Edita critérios e regras</small><i></i></span></label>
       </div>
       <p class="auth-note" style="margin:8px 0 0">Especialista: professor, técnico agrícola ou agrônomo, define os critérios de liberado, atenção e adiar. Nesta versão a escolha não é verificada.</p>
+    </fieldset>
+    <fieldset id="campo-local" class="oculto">
+      <legend>Estação e local</legend>
+      <label class="field"><span>Qual estação você quer acompanhar?</span>
+        <div class="input-wrap"><select id="c-estacao" data-estacoes></select></div></label>
+      <label class="field"><span>CEP do local da estação (opcional)</span>
+        <div class="input-wrap"><input type="text" id="c-cep" inputmode="numeric" maxlength="9" placeholder="00000-000">
+          <button type="button" id="c-cep-buscar" class="outline-btn">Buscar</button></div></label>
+      <p class="auth-note" id="c-cep-res" style="margin:0">Em branco, vale o local padrão (SENAI, Feira de Santana). O CEP só serve para achar coordenadas e altitude; ele e o endereço não são guardados.</p>
     </fieldset>
     <fieldset id="campo-perfis" class="oculto">
       <legend>Perfil de atividades</legend>
