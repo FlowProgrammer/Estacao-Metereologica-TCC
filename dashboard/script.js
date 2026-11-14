@@ -348,9 +348,13 @@ function derivados() {
 
 /* ------------------------------ gráficos ------------------------------ */
 const graficos = {};
+/* Ponto sozinho (sem vizinho antes e depois) não forma linha: precisa aparecer como bolinha. */
+const pontoIsolado = (pts, i) => !!pts[i] && pts[i].y != null
+  && (i === 0 || pts[i - 1].y == null) && (i === pts.length - 1 || pts[i + 1].y == null);
 function conjunto(label, pontos, cor, tracejado, area) {
+  const raioBase = pontos.length < 40 ? 3 : 0;
   return { label, data: pontos, borderColor: cor, borderWidth: tracejado ? 1.6 : 2.2, borderDash: tracejado ? [5, 4] : [],
-           pointRadius: pontos.length < 40 ? 3 : 0, pointBackgroundColor: cor, tension: 0.25, spanGaps: false,
+           pointRadius: ctx => pontoIsolado(pontos, ctx.dataIndex) ? 3 : raioBase, pointBackgroundColor: cor, tension: 0.25, spanGaps: false,
            fill: area ? "origin" : false, backgroundColor: area ? "rgba(55, 124, 112, 0.10)" : cor };
 }
 const decs = {}, foras = {};
@@ -505,7 +509,20 @@ function comQuebras(pontos) {
   }
   return out;
 }
-const serie = (L, campo) => comQuebras(L.map(l => ({ x: l.ts * 1000, y: l[campo] })));
+/* Agrupa leituras muito próximas (ex.: rajadas de envios em poucos segundos) em um ponto médio
+   por intervalo de tempo. Sem isso, dezenas de pontos quase no mesmo instante viram uma linha
+   vertical no gráfico. Séries pequenas passam sem alteração. */
+function reduzir(L, campo, alvo = 600) {
+  if (L.length <= alvo) return L.map(l => ({ x: l.ts * 1000, y: l[campo] }));
+  const ini = L[0].ts, larg = Math.max(1, Math.ceil((L[L.length - 1].ts - ini) / alvo));
+  const baldes = new Map();
+  L.forEach(l => {
+    const k = Math.floor((l.ts - ini) / larg), b = baldes.get(k) || { soma: 0, tempo: 0, n: 0 };
+    b.soma += l[campo]; b.tempo += l.ts; b.n++; baldes.set(k, b);
+  });
+  return [...baldes.values()].map(b => ({ x: Math.round(b.tempo / b.n) * 1000, y: b.soma / b.n }));
+}
+const serie = (L, campo) => comQuebras(reduzir(L, campo));
 
 /* ------------------------------ renderização ------------------------------ */
 const $ = id => document.getElementById(id);
@@ -1540,5 +1557,5 @@ if (typeof document !== "undefined") {
   document.addEventListener("DOMContentLoaded", iniciar);
 }
 if (typeof module !== "undefined") {
-  module.exports = { inicioUltimaSessao, comQuebras, leituraValida, buscarLeituras, CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, restaurarAtividade, criarAtividade, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
+  module.exports = { inicioUltimaSessao, comQuebras, reduzir, pontoIsolado, leituraValida, buscarLeituras, CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, restaurarAtividade, criarAtividade, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
 }

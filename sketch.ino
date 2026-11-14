@@ -44,14 +44,20 @@ const char* ESTACAO_ID   = "est01";
 
 const float ALTITUDE_M = 211;            // ajuste para a altitude do seu local
 const unsigned long INTERVALO_MS = 10000;  // simulação: 10 s. Estação real: 300000 (5 min)
+const unsigned long INTERVALO_MIN_ENVIO_MS = 3000; // trava anti-flood: nunca envia mais de 1 leitura a cada 3 s
+const int   TENTATIVAS_ENVIO = 3;          // tentativas por requisição quando a rede falha (retorno negativo)
+const unsigned long ESPERA_RETENTATIVA_MS = 1500;  // espera base entre tentativas (cresce a cada falha)
+const unsigned long TIMEOUT_HTTP_MS = 8000;
 const long FUSO_SEGUNDOS = -3 * 3600;      // Brasília (UTC-3)
 
 const int PIN_BOTAO = 4;                   // botão entre GPIO 4 e GND (opcional)
 const int PIN_LED   = 2;                   // acende no modo tempestade
 
 unsigned long ultimoEnvio = 0;
-bool primeiroEnvio = true;
+bool jaEnviou = false;
+bool primeiroEnvio = true;       // "envio pendente": pede uma leitura extra (boot ou comando manual)
 unsigned long ultimoBotao = 0;
+String bufferSerial = "";        // acumula os caracteres digitados sem bloquear o loop()
 
 // ---------------- Hora ----------------
 bool horaValida() {
@@ -183,19 +189,35 @@ void conectarWifi() {
 
 // ---------------- Firebase ----------------
 bool enviarFirebase(const String &caminho, const char *json) {
-  WiFiClientSecure cliente;
-  cliente.setInsecure();   // simulação: não valida o certificado
-  HTTPClient http;
   String url = String(FIREBASE_URL) + caminho + ".json";
-  if (!http.begin(cliente, url)) {
-    Serial.println("Não foi possível iniciar a conexão HTTP.");
-    return false;
+  for (int tentativa = 1; tentativa <= TENTATIVAS_ENVIO; tentativa++) {
+    int codigo;
+    {
+      WiFiClientSecure cliente;      // criado e destruído a cada tentativa (libera a conexão TLS)
+      cliente.setInsecure();         // simulação: não valida o certificado
+      cliente.setTimeout(TIMEOUT_HTTP_MS / 1000);
+      HTTPClient http;
+      http.setConnectTimeout(TIMEOUT_HTTP_MS);
+      http.setTimeout(TIMEOUT_HTTP_MS);
+      http.setReuse(false);
+      if (!http.begin(cliente, url)) {
+        Serial.println("Não foi possível iniciar a conexão HTTP.");
+        return false;
+      }
+      http.addHeader("Content-Type", "application/json");
+      codigo = http.PUT(json);
+      http.end();
+    }
+    Serial.printf("PUT %s -> %d (tentativa %d/%d)\n", caminho.c_str(), codigo, tentativa, TENTATIVAS_ENVIO);
+    if (codigo >= 200 && codigo < 300) return true;
+    if (codigo > 0) return false;    // resposta HTTP de erro (401, 404...): repetir não resolve
+    // codigo <= 0 (-1, -5...): falha de rede. Espera um pouco mais a cada tentativa e tenta de novo.
+    if (tentativa < TENTATIVAS_ENVIO) {
+      if (WiFi.status() != WL_CONNECTED) return false;   // sem Wi-Fi: o próximo ciclo reconecta
+      delay(ESPERA_RETENTATIVA_MS * tentativa);
+    }
   }
-  http.addHeader("Content-Type", "application/json");
-  int codigo = http.PUT(json);
-  http.end();
-  Serial.printf("PUT %s -> %d\n", caminho.c_str(), codigo);
-  return codigo == 200;
+  return false;
 }
 
 void enviarLeitura() {
@@ -270,15 +292,29 @@ void interpretarComando(String c) {
   Serial.println("Comandos: t, auto, temp 30, umid 90, pres 1005");
 }
 
+// Lê a serial sem bloquear: acumula caracteres e só interpreta quando chega Enter (\n ou \r).
+// (Serial.readStringUntil travava o loop até 1 s por comando e reprocessava linhas parciais.)
+void lerSerial() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (bufferSerial.length() > 0) {
+        String comando = bufferSerial;
+        bufferSerial = "";
+        interpretarComando(comando);
+      }
+    } else if (bufferSerial.length() < 40) {
+      bufferSerial += c;
+    }
+  }
+}
+
 void verificarEntradas() {
   if (digitalRead(PIN_BOTAO) == LOW && millis() - ultimoBotao > 400) {
     ultimoBotao = millis();
     alternarTempestade();
   }
-  if (Serial.available()) {
-    String linha = Serial.readStringUntil('\n');
-    interpretarComando(linha);
-  }
+  lerSerial();
 }
 
 // ---------------- Arduino ----------------
@@ -299,10 +335,15 @@ void setup() {
 
 void loop() {
   verificarEntradas();
-  if (primeiroEnvio || millis() - ultimoEnvio >= INTERVALO_MS) {
+  unsigned long agora = millis();
+  bool vencido = !jaEnviou || agora - ultimoEnvio >= INTERVALO_MS;                 // envio periódico (RNF01)
+  bool pedido  = primeiroEnvio && (!jaEnviou || agora - ultimoEnvio >= INTERVALO_MIN_ENVIO_MS);  // envio extra, com trava
+  if (vencido || pedido) {
     primeiroEnvio = false;
-    ultimoEnvio = millis();
+    ultimoEnvio = millis();          // marcado ANTES de enviar: as retentativas não contam como novo ciclo
+    jaEnviou = true;
     enviarLeitura();
+    ultimoEnvio = millis();          // e de novo depois: o intervalo conta a partir do fim do envio
   }
   delay(20);
 }
