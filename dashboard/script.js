@@ -14,7 +14,7 @@ const CONFIG = {
   estacao: "est01",       // estação padrão (a simulada)
   estacoes: {             // estações disponíveis: o id precisa ser o mesmo ESTACAO_ID gravado no firmware
     est01: { nome: "Simulada (Wokwi)", tipo: "simulada" },
-    est02: { nome: "Real (sala, umidade simulada)", tipo: "real" }   // com BME280 de verdade, troque para "Real (circuito da sala)"
+    est02: { nome: "Real (circuito da sala)", tipo: "real" }
   },
   altitude: 211,          // metros; igual ao ALTITUDE_M do sketch.ino (só usado no modo demonstração)
   lat: -12.27,            // Feira de Santana (BA), aproximado. Ajuste para o seu local.

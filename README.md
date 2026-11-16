@@ -27,7 +27,7 @@ O dashboard acompanha uma estação por vez, escolhida no seletor da barra later
 
 Id	Estação	Firmware	Envio
 est01	Simulada (Wokwi), aceita comandos	SIMULAR_BME280 = 1	a cada 10 s
-est02	Real (ESP32 + BMP280 ou BME280 na sala)	SIMULAR_BME280 = 0 e SENSOR_BMP280 = 1 (BMP280) ou 0 (BME280)	a cada 60 s
+est02	Real (ESP32 + BME280 na sala)	SIMULAR_BME280 = 0	a cada 60 s
 
 Cada estação grava em /estacoes/{id}/leituras, então o histórico de uma não se mistura com o da outra. Para acrescentar uma estação, grave o firmware com outro ESTACAO_ID e inclua o id em CONFIG.estacoes no script.js.
 
@@ -35,7 +35,7 @@ No cadastro, o CEP (opcional) é consultado na BrasilAPI (com ViaCEP de reserva)
 
 Comandos da estação simulada (monitor serial do Wokwi, com Enter): t (modo tempestade), temp 33.5, umid 85, pres 1003 (hPa ao nível do mar) e auto (volta ao automático).
 
-Com módulo BMP280 (não mede umidade), temperatura e pressão são reais e a umidade é simulada; umid 85 no monitor serial a fixa e auto libera.
+Na estação real (BME280) temperatura, umidade e pressão são lidas do sensor e não há comandos no monitor serial. Biblioteca necessária: Adafruit BME280 (com a Adafruit Unified Sensor). Se o monitor mostrar "o módulo não é um BME280", o chip é um BMP280, que não mede umidade.
 
 Wi-Fi da estação real: crie segredos.h ao lado do sketch.ino com WIFI_SSID_REAL e WIFI_SENHA_REAL (o arquivo está no .gitignore).
 
