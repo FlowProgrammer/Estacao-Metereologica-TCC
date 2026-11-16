@@ -14,7 +14,7 @@ const CONFIG = {
   estacao: "est01",       // estação padrão (a simulada)
   estacoes: {             // estações disponíveis: o id precisa ser o mesmo ESTACAO_ID gravado no firmware
     est01: { nome: "Simulada (Wokwi)", tipo: "simulada" },
-    est02: { nome: "Real (circuito da sala)", tipo: "real" }
+    est02: { nome: "Real (sala, umidade simulada)", tipo: "real" }   // com BME280 de verdade, troque para "Real (circuito da sala)"
   },
   altitude: 211,          // metros; igual ao ALTITUDE_M do sketch.ino (só usado no modo demonstração)
   lat: -12.27,            // Feira de Santana (BA), aproximado. Ajuste para o seu local.
@@ -427,9 +427,10 @@ function ajustarY(g) {              // depois de mover ou ampliar, reajusta o ei
 /* Gráficos de linha: arraste para mover, Ctrl + roda do mouse (ou pinça no celular) para
    ampliar, duplo clique para restaurar. Se o usuário mexeu no gráfico, as atualizações
    automáticas não desfazem o zoom. */
-function desenharLinha(id, datasets, xmin, xmax, spanMin = 0) {
+function desenharLinha(id, datasets, xmin, xmax, spanMin = 0, eixo = null) {
   const el = document.getElementById(id);
   if (!el || typeof Chart === "undefined") return;
+  if (eixo) eixos[id] = eixo; else delete eixos[id];
   if (xmax - xmin < 60000) xmax = xmin + 60000;
   const ly = limitesY(datasets, spanMin, xmin, xmax, modoEscala());
   decs[id] = ly.dec; foras[id] = ly.fora;
@@ -446,14 +447,14 @@ function desenharLinha(id, datasets, xmin, xmax, spanMin = 0) {
     return;
   }
   const g = new Chart(el, {
-    type: "line", data: { datasets },
+    type: "line", data: { datasets }, plugins: [marcasLacuna],
     options: {
       animation: false, responsive: true, maintainAspectRatio: false, parsing: false,
       interaction: { mode: "nearest", intersect: false },
       plugins: {
         legend: { display: datasets.length > 1, labels: { boxWidth: 12, usePointStyle: true } },
         tooltip: { callbacks: {
-          title: it => it.length ? dataHoraCompleta(it[0].parsed.x) : "",
+          title: it => it.length ? dataHoraCompleta(eixos[id] ? eixos[id].real(it[0].parsed.x) : it[0].parsed.x) : "",
           label: c => `${c.dataset.label}: ${fmt(c.parsed.y, 2)}`
         } },
         zoom: {
@@ -465,7 +466,15 @@ function desenharLinha(id, datasets, xmin, xmax, spanMin = 0) {
       },
       scales: {
         x: { type: "linear", min: xmin, max: xmax, grid: { color: COR.grade },
-             ticks: { maxTicksLimit: 8, callback: function (v) { return rotuloX(v, this.max - this.min); } } },
+             afterBuildTicks: sc => {            // com pausas encurtadas, os rótulos ficam no início de cada sessão
+               const ex = eixos[id];
+               if (!ex) return;
+               const vs = ex.segs.map(s => s.off).filter(v => v >= sc.min && v <= sc.max);
+               if (!vs.length) return;
+               const passo = Math.ceil(vs.length / 7);
+               sc.ticks = vs.filter((_, i) => i % passo === 0).map(value => ({ value }));
+             },
+             ticks: { maxTicksLimit: 8, callback: function (v) { return eixos[id] ? rotuloX(eixos[id].real(v), Infinity) : rotuloX(v, this.max - this.min); } } },
         y: { min: ly.min, max: ly.max, grid: { color: COR.grade },
              ticks: { stepSize: ly.passo, callback: v => fmt(v, decs[id] ?? 0) } }
       }
@@ -527,20 +536,82 @@ function comQuebras(pontos) {
   }
   return out;
 }
-/* Agrupa leituras muito próximas (ex.: rajadas de envios em poucos segundos) em um ponto médio
-   por intervalo de tempo. Sem isso, dezenas de pontos quase no mesmo instante viram uma linha
-   vertical no gráfico. Séries pequenas passam sem alteração. */
+/* Sessões: sequências de leituras sem pausa longa. Uma pausa maior que 15 min (ou 6x o intervalo
+   típico) separa duas sessões. As leituras vêm em segundos (ts). */
+function sessoesDe(L) {
+  if (!L.length) return [];
+  const difs = [];
+  for (let i = 1; i < L.length; i++) difs.push(L[i].ts - L[i - 1].ts);
+  const mediana = difs.length ? difs.slice().sort((a, b) => a - b)[Math.floor(difs.length / 2)] : 0;
+  const limite = Math.max(15 * 60, 6 * mediana);
+  const out = [{ ini: L[0].ts, fim: L[0].ts }];
+  for (let i = 1; i < L.length; i++) {
+    if (L[i].ts - L[i - 1].ts > limite) out.push({ ini: L[i].ts, fim: L[i].ts });
+    else out[out.length - 1].fim = L[i].ts;
+  }
+  return out;
+}
+
+/* Eixo do tempo do histórico. Estação ligada só de vez em quando gera sessões de poucos minutos
+   separadas por horas ou dias; num eixo de tempo real cada sessão vira uma risca de 1 pixel.
+   Com 2 ou mais sessões, as pausas são encurtadas (faixa cinza) e cada sessão ocupa espaço
+   proporcional à sua duração. Os rótulos continuam mostrando a data e a hora reais. */
+function construirEixo(L) {
+  const ses = sessoesDe(L);
+  if (ses.length < 2) return null;
+  const dur = ses.map(s => Math.max(s.fim - s.ini, 60) * 1000);
+  const folga = Math.max(0.04 * dur.reduce((a, b) => a + b, 0), 30000);
+  let off = 0;
+  const segs = ses.map((s, i) => { const seg = { ini: s.ini * 1000, dur: dur[i], off }; off += dur[i] + folga; return seg; });
+  const achar = (campo, v) => { let k = 0; for (let i = segs.length - 1; i >= 0; i--) if (v >= segs[i][campo]) { k = i; break; } return segs[k]; };
+  return {
+    sessoes: ses, segs, max: off - folga,
+    lacunas: segs.slice(1).map((s, i) => [segs[i].off + segs[i].dur, s.off]),
+    x: t => { const s = achar("ini", t); return s.off + Math.min(Math.max(t - s.ini, 0), s.dur); },
+    real: v => { const s = achar("off", v); return s.ini + Math.min(Math.max(v - s.off, 0), s.dur); }
+  };
+}
+
+/* Agrupa leituras muito próximas em um ponto médio por intervalo de tempo. Só age em séries
+   grandes (mais de "alvo" pontos); o tamanho do intervalo vem do tempo realmente medido,
+   sem contar as pausas. */
 function reduzir(L, campo, alvo = 600) {
   if (L.length <= alvo) return L.map(l => ({ x: l.ts * 1000, y: l[campo] }));
-  const ini = L[0].ts, larg = Math.max(1, Math.ceil((L[L.length - 1].ts - ini) / alvo));
+  const ativo = sessoesDe(L).reduce((a, s) => a + Math.max(s.fim - s.ini, 1), 0);
+  const larg = Math.max(1, Math.ceil(ativo / alvo));
   const baldes = new Map();
   L.forEach(l => {
-    const k = Math.floor((l.ts - ini) / larg), b = baldes.get(k) || { soma: 0, tempo: 0, n: 0 };
+    const k = Math.floor(l.ts / larg), b = baldes.get(k) || { soma: 0, tempo: 0, n: 0 };
     b.soma += l[campo]; b.tempo += l.ts; b.n++; baldes.set(k, b);
   });
   return [...baldes.values()].map(b => ({ x: Math.round(b.tempo / b.n) * 1000, y: b.soma / b.n }));
 }
-const serie = (L, campo) => comQuebras(reduzir(L, campo));
+/* Série para o gráfico. Com eixo comprimido, cada sessão vira um trecho e há uma quebra entre elas. */
+function serie(L, campo, eixo) {
+  if (!eixo) return comQuebras(reduzir(L, campo));
+  const out = [];
+  eixo.sessoes.forEach(s => {
+    const pts = reduzir(L.filter(l => l.ts >= s.ini && l.ts <= s.fim), campo).map(p => ({ x: eixo.x(p.x), y: p.y }));
+    if (out.length && pts.length) out.push({ x: out[out.length - 1].x + 1, y: null });
+    out.push(...pts);
+  });
+  return out;
+}
+const eixos = {};      // eixo comprimido de cada gráfico (id do canvas); sem entrada = eixo de tempo normal
+const marcasLacuna = {
+  id: "marcasLacuna",
+  beforeDatasetsDraw(chart) {
+    const ex = eixos[chart.canvas.id];
+    if (!ex) return;
+    const { ctx, chartArea: a, scales: { x } } = chart;
+    ctx.save(); ctx.fillStyle = "rgba(120, 134, 130, 0.12)";
+    ex.lacunas.forEach(([de, ate]) => {
+      const l = Math.max(x.getPixelForValue(de), a.left), r = Math.min(x.getPixelForValue(ate), a.right);
+      if (r > l) ctx.fillRect(l, a.top, r - l, a.bottom - a.top);
+    });
+    ctx.restore();
+  }
+};
 
 /* ------------------------------ renderização ------------------------------ */
 const $ = id => document.getElementById(id);
@@ -889,14 +960,16 @@ function recorte(L) {
 function renderHistorico() {
   const L = recorte(estado.leituras);
   if (!L.length) return;
-  const xmin = L[0].ts * 1000, xmax = L[L.length - 1].ts * 1000;
-  desenharLinha("graf-temp", [conjunto("Temperatura (°C)", serie(L, "t"), COR.est, false, true)], xmin, xmax, 4);
-  desenharLinha("graf-umid", [conjunto("Umidade (%)", serie(L, "u"), COR.est, false, true)], xmin, xmax, 10);
-  desenharLinha("graf-pres", [conjunto("Pressão (hPa)", serie(L, "p"), COR.est, false, true)], xmin, xmax, 6);
+  const eixo = construirEixo(L);
+  const xmin = eixo ? 0 : L[0].ts * 1000, xmax = eixo ? eixo.max : L[L.length - 1].ts * 1000;
+  desenharLinha("graf-temp", [conjunto("Temperatura (°C)", serie(L, "t", eixo), COR.est, false, true)], xmin, xmax, 4, eixo);
+  desenharLinha("graf-umid", [conjunto("Umidade (%)", serie(L, "u", eixo), COR.est, false, true)], xmin, xmax, 10, eixo);
+  desenharLinha("graf-pres", [conjunto("Pressão (hPa)", serie(L, "p", eixo), COR.est, false, true)], xmin, xmax, 6, eixo);
   const totalFora = ["graf-temp", "graf-umid", "graf-pres"].reduce((t, id) => t + (foras[id] || 0), 0);
   texto("btn-escala", estado.escalaTotal ? "Escala: completa" : "Escala: típica");
-  texto("nota-escala", !estado.escalaTotal && totalFora
-    ? `Escala típica: ${totalFora} leitura(s) extrema(s) ficam fora do quadro. Use "Escala: completa" para ver tudo.` : "");
+  texto("nota-escala", [
+    !estado.escalaTotal && totalFora ? `Escala típica: ${totalFora} leitura(s) extrema(s) ficam fora do quadro. Use "Escala: completa" para ver tudo.` : "",
+    eixo ? "Pausas sem leituras aparecem encurtadas (faixas cinzas); os horários do eixo são os reais." : ""].filter(Boolean).join(" "));
   const defs = [["Temperatura", "t", 1, "°C", "sun", "orange", "tot-temp"], ["Umidade do ar", "u", 0, "%", "droplet", "blue", "tot-umid"], ["Pressão", "p", 1, "hPa", "gauge", "purple", "tot-pres"]];
   const cartoes = defs.map(([nome, c, d, un, ic, cor, tot]) => {
     const v = L.map(l => l[c]);
@@ -1686,5 +1759,5 @@ if (typeof document !== "undefined") {
   document.addEventListener("DOMContentLoaded", iniciar);
 }
 if (typeof module !== "undefined") {
-  module.exports = { buscarCep, normalizarLocal, pressaoNivelMar, idEstacao, localAtivo, inicioUltimaSessao, comQuebras, reduzir, pontoIsolado, leituraValida, buscarLeituras, CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, restaurarAtividade, criarAtividade, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
+  module.exports = { sessoesDe, construirEixo, serie, buscarCep, normalizarLocal, pressaoNivelMar, idEstacao, localAtivo, inicioUltimaSessao, comQuebras, reduzir, pontoIsolado, leituraValida, buscarLeituras, CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, restaurarAtividade, criarAtividade, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
 }

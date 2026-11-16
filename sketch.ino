@@ -1,6 +1,6 @@
 /*
   ClimaSense: estação meteorológica IoT (ESP32 + BME280)
-  Versão para simulação no Wokwi, com o BME280 simulado por código.
+  Duas estações no mesmo código: simulada (Wokwi) e real (ESP32 com BME280 ou BMP280).
 
   Fluxo: ESP32 -> Firebase Realtime Database (HTTPS, JSON) -> dashboard web
 
@@ -15,8 +15,12 @@
        auto         volta aos valores automáticos
      O botão no GPIO 4 (ligado ao GND) também liga/desliga o modo tempestade.
   4) Com o sensor real, mude SIMULAR_BME280 para 0 (ligação: SDA no GPIO 21,
-     SCL no GPIO 22, VCC no 3V3) e instale as bibliotecas Adafruit BME280
-     e Adafruit Unified Sensor. A estação real usa o id "est02" e envia a cada 60 s.
+     SCL no GPIO 22, VCC no 3V3). A estação real usa o id "est02" e envia a cada 60 s.
+       - Módulo BME280 (mede umidade): SENSOR_BMP280 = 0; biblioteca Adafruit BME280.
+       - Módulo BMP280 (NÃO mede umidade): SENSOR_BMP280 = 1; biblioteca Adafruit BMP280.
+         Temperatura e pressão são reais; a umidade é SIMULADA (digite "umid 85" no monitor
+         serial para fixá-la e "auto" para voltar ao automático).
+     Instale também a Adafruit Unified Sensor.
 */
 
 #include <WiFi.h>
@@ -25,13 +29,20 @@
 #include <time.h>
 #include <math.h>
 
-#define SIMULAR_BME280 1   // 1 = sensor simulado (Wokwi), 0 = BME280 real
+#define SIMULAR_BME280 1   // 1 = tudo simulado (Wokwi), 0 = sensor real
+#define SENSOR_BMP280  1   // só vale com SIMULAR_BME280 = 0: 1 = módulo BMP280 (umidade simulada), 0 = BME280 (tudo real)
+#define UMIDADE_SIMULADA (SIMULAR_BME280 || SENSOR_BMP280)
 
 #if !SIMULAR_BME280
   #include <Wire.h>
   #include <Adafruit_Sensor.h>
-  #include <Adafruit_BME280.h>
-  Adafruit_BME280 bme;
+  #if SENSOR_BMP280
+    #include <Adafruit_BMP280.h>
+    Adafruit_BMP280 bmp;
+  #else
+    #include <Adafruit_BME280.h>
+    Adafruit_BME280 bme;
+  #endif
 #endif
 
 // ---------------- Configuração ----------------
@@ -159,10 +170,42 @@ class SimBME280 {
 SimBME280 sensor;
 #endif
 
+// ---------------- Umidade simulada (módulo BMP280 real) ----------------
+#if !SIMULAR_BME280 && SENSOR_BMP280
+class UmidadeSimulada {
+ public:
+  void fixar(float v) { fixa = true; valor = v; }
+  void automatico()   { fixa = false; }
+  float ler(float hora) {
+    float u = fixa ? valor + ruido(0.3) : 75.0 - 10.0 * sin(2 * PI * (hora - 9) / 24.0) + ruido(0.4);
+    return constrain(u, 0.0, 100.0);
+  }
+ private:
+  bool fixa = false;
+  float valor = 70.0;
+  float ruido(float amplitude) { return (random(-1000, 1001) / 1000.0) * amplitude; }
+};
+UmidadeSimulada umidadeSim;
+#endif
+
 // ---------------- Leitura ----------------
 bool iniciarSensor() {
 #if SIMULAR_BME280
   return sensor.begin();
+#elif SENSOR_BMP280
+  Wire.begin(21, 22);
+  uint8_t enderecos[] = {0x76, 0x77};
+  uint8_t ids[] = {0x58, 0x56, 0x57};     // IDs do BMP280 (produção e amostras)
+  for (uint8_t a : enderecos) for (uint8_t id : ids) if (bmp.begin(a, id)) {
+    Serial.printf("BMP280 encontrado (0x%02X). Temperatura e pressão são reais; a umidade é SIMULADA.\n", a);
+    return true;
+  }
+  if (bmp.sensorID() == 0x60) {
+    Serial.println("ERRO: o módulo é um BME280 (mede umidade). Mude SENSOR_BMP280 para 0 no sketch.");
+  } else {
+    Serial.println("ERRO: BMP280 não encontrado (0x76 e 0x77). Confira SDA no GPIO 21, SCL no GPIO 22 e o VCC. Nenhuma leitura será enviada.");
+  }
+  return false;
 #else
   Wire.begin(21, 22);
   if (!bme.begin(0x76) && !bme.begin(0x77)) {
@@ -184,9 +227,15 @@ void lerSensor(float &t, float &u, float &pEstacaoHpa) {
   u = sensor.readHumidity();
   pEstacaoHpa = sensor.readPressure() / 100.0;
 #else
-  t = bme.readTemperature();
-  u = bme.readHumidity();
-  pEstacaoHpa = bme.readPressure() / 100.0;
+  #if SENSOR_BMP280
+    t = bmp.readTemperature();
+    u = umidadeSim.ler(horaLocal());
+    pEstacaoHpa = bmp.readPressure() / 100.0;
+  #else
+    t = bme.readTemperature();
+    u = bme.readHumidity();
+    pEstacaoHpa = bme.readPressure() / 100.0;
+  #endif
 #endif
 }
 
@@ -272,10 +321,10 @@ void enviarLeitura() {
 
   String base = String("/estacoes/") + ESTACAO_ID;
   if (enviarFirebase(base + "/leituras/" + String(ts), json)) {
-    char status[140];
+    char status[170];
     snprintf(status, sizeof(status),
-             "{\"ultima_leitura\":%lu,\"simulado\":%s,\"rssi\":%d}",
-             ts, SIMULAR_BME280 ? "true" : "false", WiFi.RSSI());
+             "{\"ultima_leitura\":%lu,\"simulado\":%s,\"umidSimulada\":%s,\"rssi\":%d}",
+             ts, SIMULAR_BME280 ? "true" : "false", UMIDADE_SIMULADA ? "true" : "false", WiFi.RSSI());
     enviarFirebase(base + "/status", status);
   }
 }
@@ -296,8 +345,14 @@ void interpretarComando(String c) {
   if (c.length() == 0) return;
 #if SIMULAR_BME280
   if (c == "t") { alternarTempestade(); return; }
+#endif
+#if UMIDADE_SIMULADA
   if (c == "auto") {
+  #if SIMULAR_BME280
     sensor.voltarAoAutomatico();
+  #else
+    umidadeSim.automatico();
+  #endif
     Serial.println(">> Valores automaticos");
     primeiroEnvio = true;   // envia já uma leitura nova
     return;
@@ -306,16 +361,27 @@ void interpretarComando(String c) {
   if (espaco > 0) {
     String nome = c.substring(0, espaco);
     float valor = c.substring(espaco + 1).toFloat();
+  #if SIMULAR_BME280
     if (nome == "temp") sensor.fixarTemperatura(valor);
     else if (nome == "umid") sensor.fixarUmidade(valor);
     else if (nome == "pres") sensor.fixarPressao(valor);
     else { Serial.println("Comando desconhecido."); return; }
+  #else
+    if (nome == "umid") umidadeSim.fixar(valor);
+    else { Serial.println("Com o sensor real, só a umidade pode ser fixada: umid 85"); return; }
+  #endif
     Serial.printf(">> %s fixada em %.1f\n", nome.c_str(), valor);
     primeiroEnvio = true;   // envia já uma leitura nova
     return;
   }
 #endif
+#if SIMULAR_BME280
   Serial.println("Comandos: t, auto, temp 30, umid 90, pres 1005");
+#elif SENSOR_BMP280
+  Serial.println("Comandos: umid 85, auto");
+#else
+  Serial.println("Sensor BME280 real: não há comandos.");
+#endif
 }
 
 // Lê a serial sem bloquear: acumula caracteres e só interpreta quando chega Enter (\n ou \r).
