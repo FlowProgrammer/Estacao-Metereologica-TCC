@@ -23,6 +23,7 @@ const CONFIG = {
   atualizarMs: 10000,     // consulta ao Firebase
   atualizarApiMs: 600000, // consulta à Open-Meteo (10 min)
   limiteLeituras: 3000,
+  margens: { t: 1.5, u: 6, p: 3 },   // validação Sensor × Open-Meteo: °C, pontos percentuais de umidade e hPa (PRNF02)
   localNome: "SENAI, Feira de Santana (BA)"
 };
 const emDemo = () => CONFIG.firebaseUrl.includes("SEU-PROJETO");
@@ -313,6 +314,7 @@ async function buscarLeituras() {
 async function buscarApi() {
   const url = "https://api.open-meteo.com/v1/forecast"
     + `?latitude=${localAtivo().lat}&longitude=${localAtivo().lon}`
+    + "&current=temperature_2m,relative_humidity_2m,pressure_msl"
     + "&hourly=precipitation_probability,precipitation,wind_speed_10m,temperature_2m,cloud_cover"
     + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max"
     + `&timezone=${encodeURIComponent(CONFIG.fusoApi)}&timeformat=unixtime&forecast_days=5`;
@@ -327,6 +329,7 @@ async function buscarApi() {
   const d = j.daily || {};
   return {
     consultadoEm: Date.now(),
+    atual: j.current ? { ts: j.current.time, t: j.current.temperature_2m, u: j.current.relative_humidity_2m, p: j.current.pressure_msl } : null,
     horas: fatia(h.time, 12),
     prob: fatia(h.precipitation_probability, 12),
     mm: fatia(h.precipitation, 12),
@@ -982,6 +985,52 @@ function renderHistorico() {
   $("resumo").innerHTML = cartoes.join("");
 }
 
+/* ---------- validação: última leitura da estação x observação atual da Open-Meteo ----------
+   O desvio é a diferença absoluta; fica "dentro da margem" quando <= margem (CONFIG.margens). */
+function renderValidacao() {
+  const corpo = $("val-corpo");
+  if (!corpo) return;
+  const L = estado.leituras, ult = L.length ? L[L.length - 1] : null;
+  const ref = estado.api && estado.api.atual;
+  const resumo = $("val-resumo");
+  const vazio = (msg, sub) => {
+    corpo.innerHTML = `<tr><td colspan="6" class="val-vazio">${msg}</td></tr>`;
+    texto("val-sub", sub);
+    resumo.innerHTML = "";
+  };
+  if (!ult) return vazio("Sem leituras da estação para comparar.", "Aguardando as leituras da estação.");
+  if (!ref) return vazio(estado.apiErro ? `Não foi possível consultar a Open-Meteo agora (${estado.apiErro}).` : "Consultando a Open-Meteo…",
+                         "Aguardando a observação da Open-Meteo.");
+  const m = CONFIG.margens;
+  const defs = [
+    { nome: "Temperatura", ic: "sun", cor: "orange", s: ult.t, r: ref.t, ds: 1, dr: 1, un: "°C", lim: m.t },
+    { nome: "Umidade", ic: "droplet", cor: "blue", s: ult.u, r: ref.u, ds: 1, dr: 0, un: "%", lim: m.u },
+    { nome: "Pressão ao nível do mar", ic: "gauge", cor: "purple", s: ult.p, r: ref.p, ds: 1, dr: 1, un: "hPa", lim: m.p }
+  ].filter(d => isFinite(d.s) && isFinite(d.r));
+  let fora = 0;
+  corpo.innerHTML = defs.map(d => {
+    const dif = Math.round(Math.abs(d.s - d.r) * 10) / 10;
+    const ok = dif <= d.lim;
+    if (!ok) fora++;
+    const folga = Math.round(Math.abs(d.lim - dif) * 10) / 10;
+    return `<tr class="${ok ? "val-ok" : "val-fora"}">
+      <td><span class="val-ind"><span class="val-ico ${d.cor}">${icone(d.ic, 17)}</span><b>${d.nome}</b></span></td>
+      <td data-rotulo="Sensor"><b>${fmt(d.s, d.ds)}</b> <small>${d.un}</small></td>
+      <td data-rotulo="Open-Meteo"><b>${fmt(d.r, d.dr)}</b> <small>${d.un}</small></td>
+      <td data-rotulo="Diferença" class="val-dif"><b>${fmt(dif, 1)}</b> <small>${d.un}</small></td>
+      <td data-rotulo="Margem aceita">Até <b>${fmt(d.lim, 1)}</b> <small>${d.un}</small></td>
+      <td data-rotulo="Resultado"><span class="val-selo ${ok ? "safe" : "danger"}">${icone(ok ? "check" : "shield", 14)}${ok ? "Dentro da margem" : "Fora da margem"}</span>
+        <span class="val-folga">${ok ? `${fmt(folga, 1)} ${d.un} abaixo do limite` : `Excedeu o limite em ${fmt(folga, 1)} ${d.un}`}</span></td>
+    </tr>`;
+  }).join("");
+  const idadeMin = Math.round((Date.now() / 1000 - ult.ts) / 60);
+  texto("val-sub", `Comparação entre a leitura da estação (${hhmm(ult.ts * 1000)}) e a observação da Open-Meteo (${hhmm(ref.ts * 1000)}). O desvio é a diferença absoluta entre as duas fontes.`
+    + (idadeMin > 10 ? ` Atenção: a última leitura da estação tem ${idadeMin} min.` : ""));
+  resumo.innerHTML = fora
+    ? `<span class="val-aviso warning">${icone("shield", 20)}<span><b>${fora} ${fora === 1 ? "leitura fora da margem" : "leituras fora da margem"}</b><small>Recomendamos verificar a calibração</small></span></span>`
+    : `<span class="val-aviso safe">${icone("check", 20)}<span><b>Todas dentro da margem</b><small>Sensor coerente com a Open-Meteo</small></span></span>`;
+}
+
 function renderPrevisao(d) {
   if (!d) return;
   const caixa = $("fatores"); caixa.innerHTML = "";
@@ -1123,7 +1172,7 @@ function exportarCsv() {
 function renderTudo() {
   const d = derivados();
   renderStatus(); renderLeituras(d); renderHero(d); renderHoras(); renderRecomendacoes(d);
-  renderPressao(d); renderChuva(d); renderApiGrafico(); renderAlertas(d); renderHistorico();
+  renderPressao(d); renderChuva(d); renderApiGrafico(); renderAlertas(d); renderHistorico(); renderValidacao();
   renderPrevisao(d); renderPrevisaoDias(); renderJanela(); renderAtividades(); renderConta();
   verificarMudancas(d);
 }

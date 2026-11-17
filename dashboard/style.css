@@ -1882,3 +1882,45 @@ dialog.auth-dialog[open] { animation: fadeIn 0.2s; }
 #c-estacao { width: 100%; padding: 10px 12px; border: 0; background: transparent; }
 #c-cep { flex: 1; min-width: 0; }
 .auth-note.erro { color: #b5483a; }
+
+/* validação Sensor × Open-Meteo (aba Histórico) */
+.validacao { margin-top: 16px; padding: 0; overflow: hidden; }
+.val-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 22px 24px 18px; }
+.val-topo h2 { font: 700 21px Manrope, "DM Sans", system-ui, sans-serif; letter-spacing: -0.4px; margin: 0; }
+.val-sub { margin: 6px 0 0; color: #8a9693; font-size: 11px; line-height: 1.5; max-width: 640px; }
+.val-aviso { display: flex; align-items: center; gap: 11px; padding: 10px 16px; border-radius: 12px; border: 1px solid; }
+.val-aviso > span { display: flex; flex-direction: column; gap: 2px; }
+.val-aviso b { font-size: 12px; }
+.val-aviso small { font-size: 10px; opacity: .8; }
+.val-aviso.warning { color: #9b6c27; background: #fff7e8; border-color: #f4dfb8; }
+.val-aviso.safe { color: #39775c; background: #eef7f1; border-color: #cfe6d7; }
+.val-rolagem { overflow-x: auto; }
+.val-tabela { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 720px; }
+.val-tabela th { text-align: left; padding: 11px 24px; background: #f4f7f5; color: #8a9693; font-size: 10px; letter-spacing: 1px; font-weight: 800; text-transform: uppercase;
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); white-space: nowrap; }
+.val-tabela td { padding: 16px 24px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.val-tabela tbody tr.val-fora { background: #fffaf8; }
+.val-tabela small { color: #8a9693; font-size: 11px; }
+.val-tabela b { font-weight: 700; }
+.val-dif b { color: #39775c; }
+.val-fora .val-dif b { color: #b5483a; }
+.val-ind { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
+.val-ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: none; }
+.val-ico.orange { color: #d88b43; background: #fff3df; }
+.val-ico.blue { color: #4b8fb2; background: #eaf5fb; }
+.val-ico.purple { color: #8578ad; background: #f1edfa; }
+.val-fora .val-ico { color: #c76d5d; background: #fbe9e5; }
+.val-selo { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.val-selo.safe { color: #39775c; background: #e8f4ec; }
+.val-selo.danger { color: #ae5547; background: #f9e7e3; }
+.val-folga { display: block; margin-top: 5px; color: #8a9693; font-size: 10px; }
+.val-fora .val-folga { color: #ae5547; }
+.val-vazio { text-align: center; color: #8a9693; padding: 28px 24px !important; }
+.val-margens { display: flex; align-items: center; gap: 10px; margin: 16px 24px 22px; padding: 12px 16px; border-radius: 10px; background: #eaf3ef; color: #3f6a5f; }
+.val-margens svg { flex: none; }
+.val-margens p { margin: 0; font-size: 11px; line-height: 1.5; }
+@media (max-width: 760px) {
+  .val-topo { flex-direction: column; padding: 18px 16px 14px; }
+  .val-topo h2 { font-size: 18px; }
+  .val-margens { margin: 14px 16px 18px; }
+}

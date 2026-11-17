@@ -243,6 +243,29 @@
             <div class="chart-box media"><canvas id="graf-pres"></canvas></div>
           </section>
         </div>
+        <!-- Validação Sensor × Open-Meteo (item 2 da prova de conceito: PRF05, PRNF02) -->
+        <section class="panel validacao" id="validacao">
+          <div class="val-topo">
+            <div>
+              <span class="eyebrow">VALIDAÇÃO DAS LEITURAS</span>
+              <h2>Sensor × Open-Meteo</h2>
+              <p class="val-sub" id="val-sub">Aguardando as leituras…</p>
+            </div>
+            <div class="val-resumo" id="val-resumo"></div>
+          </div>
+          <div class="val-rolagem">
+            <table class="val-tabela">
+              <thead>
+                <tr><th>Indicador</th><th>Sensor</th><th>Open-Meteo</th><th>Diferença</th><th>Margem aceita</th><th>Resultado</th></tr>
+              </thead>
+              <tbody id="val-corpo"></tbody>
+            </table>
+          </div>
+          <div class="val-margens">
+            <svg class="i" data-i="shield" data-size="16"></svg>
+            <p><strong>Margens de referência:</strong> temperatura até 1,5 °C, umidade até 6 pontos percentuais e pressão ao nível do mar até 3 hPa. A Open-Meteo é um modelo para a região, não uma medição no ponto da estação.</p>
+          </div>
+        </section>
         <section class="metrics-grid history-metrics" id="resumo"></section>
         <p class="muted-note">Arraste um gráfico para movê-lo. Ctrl + roda do mouse (ou pinça no celular) amplia. Duplo clique restaura.</p>
       </section>

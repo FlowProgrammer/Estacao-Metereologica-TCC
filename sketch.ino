@@ -26,7 +26,7 @@
 #include <time.h>
 #include <math.h>
 
-#define SIMULAR_BME280 1   // 1 = tudo simulado (Wokwi), 0 = sensor real
+#define SIMULAR_BME280 0   // 1 = tudo simulado (Wokwi), 0 = sensor real
 
 #if !SIMULAR_BME280
   #include <Wire.h>
@@ -198,11 +198,18 @@ float pressaoNivelDoMar(float pEstacaoHpa) {
 
 // ---------------- Wi-Fi ----------------
 void conectarWifi() {
-  Serial.print("Conectando ao Wi-Fi");
+  if (String(WIFI_SSID) == "SEU_WIFI") {
+    Serial.println("ATENÇÃO: usando o Wi-Fi padrão (SEU_WIFI). O segredos.h não foi lido: ele precisa estar na mesma pasta do sketch.ino e usar WIFI_SSID_REAL e WIFI_SENHA_REAL.");
+  }
+  Serial.printf("Conectando ao Wi-Fi \"%s\"", WIFI_SSID);
+  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  WiFi.disconnect();               // encerra tentativa anterior (evita "wifi:sta is connecting, cannot set config")
+  delay(200);
+  WiFi.setSleep(false);
   WiFi.begin(WIFI_SSID, WIFI_SENHA, WIFI_CANAL);
   unsigned long inicio = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - inicio < 15000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - inicio < 20000) {
     delay(300);
     Serial.print(".");
   }
@@ -210,9 +217,20 @@ void conectarWifi() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("Conectado. IP: ");
     Serial.println(WiFi.localIP());
-  } else {
-    Serial.println("Sem Wi-Fi. Tentando de novo no próximo ciclo.");
+    return;
   }
+  Serial.printf("Sem Wi-Fi (status %d). Procurando redes 2,4 GHz...\n", (int)WiFi.status());
+  WiFi.disconnect();
+  int n = WiFi.scanNetworks();
+  bool achou = false;
+  for (int i = 0; i < n; i++) {
+    bool igual = WiFi.SSID(i) == String(WIFI_SSID);
+    if (igual) achou = true;
+    Serial.printf("  %s%s  (canal %d, %d dBm)\n", igual ? "-> " : "   ", WiFi.SSID(i).c_str(), WiFi.channel(i), WiFi.RSSI(i));
+  }
+  if (!achou) Serial.println("A rede configurada NÃO apareceu. Confira o nome, ligue o ponto de acesso e use 2,4 GHz (o ESP32 não enxerga 5 GHz).");
+  else Serial.println("A rede apareceu, então a senha provavelmente está errada (status 4/6 = falha de autenticação).");
+  WiFi.scanDelete();
 }
 
 // ---------------- Firebase ----------------
