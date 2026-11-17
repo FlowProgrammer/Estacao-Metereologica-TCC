@@ -1924,3 +1924,9 @@ dialog.auth-dialog[open] { animation: fadeIn 0.2s; }
   .val-topo h2 { font-size: 18px; }
   .val-margens { margin: 14px 16px 18px; }
 }
+
+.val-ico.mint { color: #4c9785; background: #e9f6f2; }
+.val-info .val-ico { color: #4c9785; background: #e9f6f2; }
+.val-info .val-dif b { color: #39775c; }
+.val-selo.warning { color: #9b6c27; background: #fff2da; }
+.val-info .val-folga { color: #8a9693; }

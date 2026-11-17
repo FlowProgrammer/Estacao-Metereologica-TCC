@@ -23,7 +23,7 @@ const CONFIG = {
   atualizarMs: 10000,     // consulta ao Firebase
   atualizarApiMs: 600000, // consulta à Open-Meteo (10 min)
   limiteLeituras: 3000,
-  margens: { t: 1.5, u: 6, p: 3 },   // validação Sensor × Open-Meteo: °C, pontos percentuais de umidade e hPa (PRNF02)
+  margens: { t: 1.5, u: 6, p: 3, o: 2 },   // validação Sensor × Open-Meteo: °C, pontos percentuais de umidade, hPa (PRNF02) e ponto de orvalho (°C, só indicativa)
   localNome: "SENAI, Feira de Santana (BA)"
 };
 const emDemo = () => CONFIG.firebaseUrl.includes("SEU-PROJETO");
@@ -314,7 +314,7 @@ async function buscarLeituras() {
 async function buscarApi() {
   const url = "https://api.open-meteo.com/v1/forecast"
     + `?latitude=${localAtivo().lat}&longitude=${localAtivo().lon}`
-    + "&current=temperature_2m,relative_humidity_2m,pressure_msl"
+    + "&current=temperature_2m,relative_humidity_2m,pressure_msl,dew_point_2m"
     + "&hourly=precipitation_probability,precipitation,wind_speed_10m,temperature_2m,cloud_cover"
     + "&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max"
     + `&timezone=${encodeURIComponent(CONFIG.fusoApi)}&timeformat=unixtime&forecast_days=5`;
@@ -329,7 +329,7 @@ async function buscarApi() {
   const d = j.daily || {};
   return {
     consultadoEm: Date.now(),
-    atual: j.current ? { ts: j.current.time, t: j.current.temperature_2m, u: j.current.relative_humidity_2m, p: j.current.pressure_msl } : null,
+    atual: j.current ? { ts: j.current.time, t: j.current.temperature_2m, u: j.current.relative_humidity_2m, p: j.current.pressure_msl, o: j.current.dew_point_2m } : null,
     horas: fatia(h.time, 12),
     prob: fatia(h.precipitation_probability, 12),
     mm: fatia(h.precipitation, 12),
@@ -1005,21 +1005,24 @@ function renderValidacao() {
   const defs = [
     { nome: "Temperatura", ic: "sun", cor: "orange", s: ult.t, r: ref.t, ds: 1, dr: 1, un: "°C", lim: m.t },
     { nome: "Umidade", ic: "droplet", cor: "blue", s: ult.u, r: ref.u, ds: 1, dr: 0, un: "%", lim: m.u },
-    { nome: "Pressão ao nível do mar", ic: "gauge", cor: "purple", s: ult.p, r: ref.p, ds: 1, dr: 1, un: "hPa", lim: m.p }
+    { nome: "Pressão ao nível do mar", ic: "gauge", cor: "purple", s: ult.p, r: ref.p, ds: 1, dr: 1, un: "hPa", lim: m.p },
+    // ponto de orvalho: indica se sensor e API descrevem o mesmo ar (não entra na contagem da POC)
+    { nome: "Ponto de orvalho", ic: "cloud", cor: "mint", s: pontoOrvalho(ult.t, ult.u),
+      r: isFinite(ref.o) ? ref.o : pontoOrvalho(ref.t, ref.u), ds: 1, dr: 1, un: "°C", lim: m.o, info: true }
   ].filter(d => isFinite(d.s) && isFinite(d.r));
   let fora = 0;
   corpo.innerHTML = defs.map(d => {
     const dif = Math.round(Math.abs(d.s - d.r) * 10) / 10;
     const ok = dif <= d.lim;
-    if (!ok) fora++;
+    if (!ok && !d.info) fora++;
     const folga = Math.round(Math.abs(d.lim - dif) * 10) / 10;
-    return `<tr class="${ok ? "val-ok" : "val-fora"}">
+    return `<tr class="${d.info ? "val-info" : ok ? "val-ok" : "val-fora"}">
       <td><span class="val-ind"><span class="val-ico ${d.cor}">${icone(d.ic, 17)}</span><b>${d.nome}</b></span></td>
       <td data-rotulo="Sensor"><b>${fmt(d.s, d.ds)}</b> <small>${d.un}</small></td>
       <td data-rotulo="Open-Meteo"><b>${fmt(d.r, d.dr)}</b> <small>${d.un}</small></td>
       <td data-rotulo="Diferença" class="val-dif"><b>${fmt(dif, 1)}</b> <small>${d.un}</small></td>
-      <td data-rotulo="Margem aceita">Até <b>${fmt(d.lim, 1)}</b> <small>${d.un}</small></td>
-      <td data-rotulo="Resultado"><span class="val-selo ${ok ? "safe" : "danger"}">${icone(ok ? "check" : "shield", 14)}${ok ? "Dentro da margem" : "Fora da margem"}</span>
+      <td data-rotulo="Margem aceita">Até <b>${fmt(d.lim, 1)}</b> <small>${d.un}${d.info ? " · indicativa" : ""}</small></td>
+      <td data-rotulo="Resultado"><span class="val-selo ${ok ? "safe" : d.info ? "warning" : "danger"}">${icone(ok ? "check" : "shield", 14)}${d.info ? (ok ? "Mesmo ar" : "Ar diferente") : ok ? "Dentro da margem" : "Fora da margem"}</span>
         <span class="val-folga">${ok ? `${fmt(folga, 1)} ${d.un} abaixo do limite` : `Excedeu o limite em ${fmt(folga, 1)} ${d.un}`}</span></td>
     </tr>`;
   }).join("");
