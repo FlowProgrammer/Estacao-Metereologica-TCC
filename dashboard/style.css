@@ -1930,21 +1930,3 @@ dialog.auth-dialog[open] { animation: fadeIn 0.2s; }
 .val-info .val-dif b { color: #39775c; }
 .val-selo.warning { color: #9b6c27; background: #fff2da; }
 .val-info .val-folga { color: #8a9693; }
-
-/* aviso rápido (confirmações) */
-.aviso { position: fixed; right: 24px; bottom: 24px; z-index: 60; max-width: min(380px, calc(100vw - 32px));
-  padding: 13px 18px; border-radius: 12px; background: #1f3a33; color: #fff; font-size: 13px; font-weight: 600;
-  box-shadow: 0 10px 30px #10241f40; border-left: 4px solid #6fcf97; animation: avisoEntra .25s ease; }
-.aviso.erro { background: #5a2a24; border-left-color: #e8806e; }
-@keyframes avisoEntra { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-
-/* sair da conta (barra lateral) */
-.side-sair { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 8px; padding: 9px 12px;
-  border: 1px solid #ffffff1f; border-radius: 10px; background: transparent; color: #b7cbc5; font-weight: 600; font-size: 12px; font-family: inherit; cursor: pointer; }
-.side-sair:hover { background: #ffffff10; color: #fff; }
-
-/* cards de atividades: o conteúdo cresce para baixo e o ícone, o selo e o botão ficam no topo (nada muda de lugar) */
-.rule-card { align-items: start; }
-.rule-card > .rule-icon, .rule-card > .status, .rule-card > .expand-rule { align-self: start; }
-.rule-card > .status { margin-top: 3px; }
-.rule-card > .expand-rule { margin-top: 1px; }
