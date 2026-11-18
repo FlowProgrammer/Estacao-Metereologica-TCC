@@ -4,13 +4,13 @@
    ClimaSense: dashboard da estação meteorológica
    ESP32 -> Firebase Realtime Database -> este dashboard (+ API Open-Meteo)
 
-   Para usar: troque firebaseUrl abaixo pela URL do seu Realtime Database.
-   Enquanto o valor tiver "SEU-PROJETO", o dashboard roda em modo
-   demonstração, com dados simulados no próprio navegador.
+   O navegador NÃO fala com o Firebase: ele chama as funções da pasta api/
+   (Vercel), que guardam a URL do banco e as chaves em variáveis de ambiente.
+   Para testar sem o Vercel, abra a página com ?demo=1 (dados simulados).
    ===================================================================== */
 const CONFIG = {
-  firebaseUrl: "https://estacao-metereologica-50584-default-rtdb.firebaseio.com/",
-  apiKey: "AIzaSyAKvbL4f6C-MEYAD_lGusr9OjvKryRQ7Ys",             // Web API Key do Firebase (Authentication). Vazio = perfil local, sem senha.
+  api: "/api",            // funções do Vercel (pasta api/): leituras, auth e usuario
+  demo: false,            // true = dados simulados no navegador (também vale abrir a página com ?demo=1)
   estacao: "est01",       // estação padrão (a simulada)
   estacoes: {             // estações disponíveis: o id precisa ser o mesmo ESTACAO_ID gravado no firmware
     est01: { nome: "Simulada (Wokwi)", tipo: "simulada" },
@@ -26,7 +26,7 @@ const CONFIG = {
   margens: { t: 1.5, u: 6, p: 3, o: 2 },   // validação Sensor × Open-Meteo: °C, pontos percentuais de umidade, hPa (PRNF02) e ponto de orvalho (°C, só indicativa)
   localNome: "SENAI, Feira de Santana (BA)"
 };
-const emDemo = () => CONFIG.firebaseUrl.includes("SEU-PROJETO");
+const emDemo = () => CONFIG.demo || new URLSearchParams(location.search).has("demo");
 
 const COR = { est: "#377c70", estClara: "#9cc3b9", api: "#4b8fb2", alerta: "#c76d5d",
               chuva: "#4b8fb2", grade: "#edf0ef", mudo: "#6d7b78", tinta: "#182724" };
@@ -295,9 +295,8 @@ const leituraValida = l => l.p >= 870 && l.p <= 1090 && l.t >= -20 && l.t <= 60 
 
 async function buscarLeituras() {
   if (emDemo()) { estado.descartadas = 0; return gerarDemo(); }
-  const q = `orderBy=${encodeURIComponent('"$key"')}&limitToLast=${CONFIG.limiteLeituras}`;
-  const r = await fetch(`${CONFIG.firebaseUrl}/estacoes/${idEstacao()}/leituras.json?${q}`);
-  if (!r.ok) throw new Error("Firebase respondeu HTTP " + r.status);
+  const r = await fetch(`${CONFIG.api}/leituras?est=${encodeURIComponent(idEstacao())}&limite=${CONFIG.limiteLeituras}`);
+  if (!r.ok) throw new Error("Servidor respondeu HTTP " + r.status);
   const obj = await r.json();
   if (!obj) { estado.descartadas = 0; return []; }
   const alt = Number(localAtivo().altitude);
@@ -1070,14 +1069,18 @@ function renderAtividades() {
     cont[r.nivel]++;
     const tom = TOM[r.nivel], aberto = !!estado.expandidas[id];
     const card = document.createElement("article");
-    card.className = `rule-card ${tom}`;
+    card.className = `rule-card ${tom}${aberto ? " aberto" : ""}`;
     card.innerHTML = `<div class="rule-icon ${tom}">${icone(iconeAtividade(id, a), 22)}</div>
       <div class="rule-copy"><small></small><h3></h3><p></p><ul class="oculto"></ul></div>
       <b class="status ${tom}"></b>
       <button class="expand-rule ${aberto ? "open" : ""}" aria-label="Ver critérios" aria-expanded="${aberto}">${icone("chevron", 18)}</button>`;
     card.querySelector("small").textContent = ROTULO_PERFIL[a.perfil] || a.perfil || "Geral";
     card.querySelector("h3").textContent = a.nome;
-    card.querySelector("p").textContent = r.motivos.length ? r.motivos[0].texto : "Nenhuma regra disparada: condições adequadas.";
+    const pResumo = card.querySelector("p");
+    pResumo.textContent = r.motivos.length
+      ? r.motivos[0].texto + (r.motivos.length > 1 ? ` (+${r.motivos.length - 1})` : "")
+      : "Nenhuma regra disparada: condições adequadas.";
+    pResumo.classList.toggle("oculto", aberto);   // aberto: a lista abaixo substitui o resumo (sem repetir)
     card.querySelector(".status").textContent = NIVEIS[r.nivel];
     const ul = card.querySelector("ul");
     (r.motivos.length ? r.motivos : [{ texto: "Todos os critérios estão dentro dos limites." }]).forEach(m => {
@@ -1085,7 +1088,16 @@ function renderAtividades() {
       li.appendChild(document.createTextNode(m.texto)); ul.appendChild(li);
     });
     ul.classList.toggle("oculto", !aberto);
-    card.querySelector(".expand-rule").addEventListener("click", () => { estado.expandidas[id] = !estado.expandidas[id]; renderAtividades(); });
+    const btnExp = card.querySelector(".expand-rule");
+    btnExp.addEventListener("click", () => {      // alterna no lugar, sem redesenhar a lista (o card não pula)
+      const abre = !estado.expandidas[id];
+      estado.expandidas[id] = abre;
+      card.classList.toggle("aberto", abre);
+      btnExp.classList.toggle("open", abre);
+      btnExp.setAttribute("aria-expanded", String(abre));
+      ul.classList.toggle("oculto", !abre);
+      pResumo.classList.toggle("oculto", abre);
+    });
     caixa.appendChild(card);
   }
   const pend = cont[1] + cont[2];
@@ -1181,9 +1193,9 @@ function renderTudo() {
 }
 
 /* ===================== Conta, perfil e regras =====================
-   Com apiKey configurada, a conta usa o Firebase Authentication (e-mail e senha,
-   pela API REST) e os dados ficam em /usuarios/{uid}. Sem apiKey, vale um perfil
-   local, só neste navegador e sem senha (modo demonstração).
+   A conta usa o Firebase Authentication (e-mail e senha) por meio das funções
+   api/auth e api/usuario, e os dados ficam em /usuarios/{uid}. No modo
+   demonstração (?demo=1), vale um perfil local, só neste navegador e sem senha.
    Observação: nesta versão o tipo de conta "especialista" é escolhido pelo próprio
    usuário e não é verificado. Em uso real, um administrador deveria aprovar. */
 const PERFIS = {
@@ -1191,7 +1203,7 @@ const PERFIS = {
   agricola: "Atividades agrícolas (pulverização, irrigação, colheita)"
 };
 const OPERADORES = [[">=", "maior ou igual a"], [">", "maior que"], ["<=", "menor ou igual a"], ["<", "menor que"]];
-const modoLocal = () => !CONFIG.apiKey || CONFIG.firebaseUrl.includes("SEU-PROJETO");
+const modoLocal = () => emDemo();   // sem backend: perfil local, só neste navegador
 const lista = x => Array.isArray(x) ? x.filter(Boolean) : (x ? Object.values(x) : []);
 const clonar = x => JSON.parse(JSON.stringify(x));
 
@@ -1256,9 +1268,9 @@ function traduzErroAuth(cod) {
   return cod || "Erro de autenticação.";
 }
 async function idCall(acao, corpo) {
-  const r = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:${acao}?key=${CONFIG.apiKey}`, {
+  const r = await fetch(`${CONFIG.api}/auth`, {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ...corpo, returnSecureToken: true })
+    body: JSON.stringify({ acao, ...corpo })
   });
   const j = await r.json();
   if (!r.ok) throw new Error(traduzErroAuth(j.error && j.error.message));
@@ -1278,9 +1290,9 @@ async function tokenAtual() {
   let s = SESSAO.ler();
   if (!s) return null;
   if (Date.now() > s.exp - 60000) {
-    const r = await fetch(`https://securetoken.googleapis.com/v1/token?key=${CONFIG.apiKey}`, {
-      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(s.refreshToken)}`
+    const r = await fetch(`${CONFIG.api}/auth`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ acao: "refresh", refreshToken: s.refreshToken })
     });
     const j = await r.json();
     if (!r.ok) { SESSAO.limpar(); estado.conta = null; return null; }
@@ -1292,12 +1304,12 @@ async function dbUsuario(metodo, caminho, corpo) {
   const t = await tokenAtual();
   const s = SESSAO.ler();
   if (!t || !s) throw new Error("Sessão expirada. Entre novamente.");
-  const r = await fetch(`${CONFIG.firebaseUrl}/usuarios/${s.uid}${caminho}.json?auth=${encodeURIComponent(t)}`, {
-    method: metodo, headers: { "Content-Type": "application/json" },
+  const r = await fetch(`${CONFIG.api}/usuario?caminho=${encodeURIComponent(caminho)}`, {
+    method: metodo, headers: { "Content-Type": "application/json", Authorization: "Bearer " + t },
     body: corpo === undefined ? undefined : JSON.stringify(corpo)
   });
   if (!r.ok) throw new Error(r.status === 401 || r.status === 403
-    ? "Sem permissão no Firebase. Confira as regras do banco." : "Firebase respondeu HTTP " + r.status);
+    ? "Sem permissão no Firebase. Confira as regras do banco." : "Servidor respondeu HTTP " + r.status);
   return r.json();
 }
 
@@ -1424,13 +1436,23 @@ function textoFaixaConta() {
 function renderConta() {
   const c = estado.conta;
   $("btn-conta").classList.toggle("oculto", !!c);
-  $("conta-info").classList.toggle("oculto", !c);
+  $("btn-sair").classList.toggle("oculto", !c);
   const papel = c ? (c.papel === "especialista" ? "Especialista" : "Usuário") : "";
-  if (c) texto("conta-nome", `${c.nome || c.email} · ${papel.toLowerCase()}`);
   texto("lado-nome", c ? (c.nome || c.email) : "Acessar conta");
   texto("lado-sub", c ? papel : "Sincronize seus dados");
   $("btn-conta-lado").classList.toggle("static", !!c);
   saudacao();
+}
+
+/* aviso rápido no canto da tela (confirmações de ações) */
+let _avisoTimer = null;
+function avisar(msg, erro) {
+  const a = $("aviso");
+  if (!a) return;
+  a.textContent = msg;
+  a.className = "aviso" + (erro ? " erro" : "");
+  clearTimeout(_avisoTimer);
+  _avisoTimer = setTimeout(() => a.classList.add("oculto"), erro ? 6000 : 4000);
 }
 
 function el(tag, props, filhos) {
@@ -1511,8 +1533,9 @@ function cartaoRegras(id, base, edita) {
         await salvarAtividade(id, a);
         delete estado.rascunho[id];
         statusRegras(`Regras de "${a.nome.trim()}" salvas.`, false);
+        avisar(`Regras de "${a.nome.trim()}" salvas.`);
         renderRegras(); renderTudo();
-      } catch (e) { statusRegras("Não foi possível salvar: " + e.message, true); }
+      } catch (e) { statusRegras("Não foi possível salvar: " + e.message, true); avisar("Não foi possível salvar: " + e.message, true); }
     });
     acoes.appendChild(salvar);
     const descartar = el("button", { type: "button", className: "btn-sm", textContent: "Descartar alterações" });
@@ -1526,6 +1549,7 @@ function cartaoRegras(id, base, edita) {
           await restaurarAtividade(id);
           delete estado.rascunho[id];
           statusRegras(nova ? "Atividade excluída." : "Critérios padrão restaurados.", false);
+          avisar(nova ? "Atividade excluída." : "Critérios padrão restaurados.");
           renderRegras(); renderTudo();
         } catch (e) { statusRegras("Não foi possível concluir: " + e.message, true); }
       });
@@ -1544,8 +1568,9 @@ function formNovaAtividade() {
     try {
       await criarAtividade(nome.value, sel.value);
       statusRegras("Atividade criada. Defina os critérios e salve.", false);
+      avisar(`Atividade "${nome.value.trim()}" criada. Defina os critérios e salve.`);
       renderRegras(); renderTudo();
-    } catch (e) { statusRegras(e.message, true); }
+    } catch (e) { statusRegras(e.message, true); avisar(e.message, true); }
   });
   return el("div", { className: "new-activity" }, [el("h3", { textContent: "Nova atividade" }), nome, sel, b]);
 }

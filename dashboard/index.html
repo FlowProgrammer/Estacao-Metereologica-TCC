@@ -59,6 +59,7 @@
         </span>
         <svg class="i" data-i="chevron" data-size="16"></svg>
       </button>
+      <button class="side-sair oculto" id="btn-sair"><svg class="i" data-i="logout" data-size="15"></svg> Sair da conta</button>
     </div>
   </aside>
 
@@ -74,10 +75,6 @@
           <svg class="i" data-i="bell" data-size="20"></svg><i class="off" id="sino-ponto"></i>
         </button>
         <button class="login-button" id="btn-conta"><svg class="i" data-i="user" data-size="18"></svg><span>Entrar</span></button>
-        <span id="conta-info" class="account-box oculto">
-          <span id="conta-nome"></span>
-          <button class="outline-btn" id="btn-sair"><svg class="i" data-i="logout" data-size="16"></svg> Sair</button>
-        </span>
       </div>
     </header>
 
@@ -471,6 +468,8 @@
     </div>
   </form>
 </dialog>
+
+<div id="aviso" class="aviso oculto" role="status" aria-live="polite"></div>
 
 <script src="script.js"></script>
 </body>
