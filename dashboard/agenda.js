@@ -392,14 +392,18 @@
     return { atualizadoEm: Date.now(), itens };
   }
 
-  /* Texto do alerta (sem formatação especial, para o Telegram não recusar caracteres) */
+  /* Texto do alerta em HTML do Telegram, com uma linha em branco entre as atividades */
+  const escHtml = t => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const corta = (t, n) => t.length > n ? t.slice(0, n - 1) + "…" : t;
   function montarMensagemRiscos(lista) {
     const risco = lista.filter(i => i.risco === "alto" || i.risco === "moderado");
     if (!risco.length) return "";
-    const linhas = risco.slice(0, MAX_MENSAGEM).map(i =>
-      `${i.risco === "alto" ? "🔴" : "🟡"} ${i.dataBR} · ${i.atividade}${i.responsavel ? " (" + i.responsavel + ")" : ""}\n    ${i.motivo}`);
-    if (risco.length > MAX_MENSAGEM) linhas.push(`… e mais ${risco.length - MAX_MENSAGEM}.`);
-    return ["ClimaSense: atividades com risco de chuva", "", ...linhas].join("\n");
+    const blocos = risco.slice(0, MAX_MENSAGEM).map(i =>
+      `${i.risco === "alto" ? "🔴" : "🟡"} <b>${i.dataBR} · ${escHtml(corta(i.atividade, 80))}</b>\n`
+      + (i.responsavel ? `👤 ${escHtml(corta(i.responsavel, 60))}\n` : "")
+      + escHtml(i.motivo));
+    if (risco.length > MAX_MENSAGEM) blocos.push(`… e mais ${risco.length - MAX_MENSAGEM}.`);
+    return ["🌧 <b>ClimaSense: atividades com risco de chuva</b>", ...blocos].join("\n\n");
   }
 
   const chaveAviso = i => `${i.dataISO}|${i.atividade}|${i.risco}`;

@@ -1109,18 +1109,29 @@ function renderAtividades() {
     + `<p>Atualizado com os dados das ${hhmm(d.ult.ts * 1000)}</p>`;
 }
 
-function mensagemAviso() {
+const ICONE_NIVEL = ["🟢", "🟡", "🔴"];   // mesma ordem de NIVEIS: Liberado, Atenção, Adiar
+const escHtml = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/* O Telegram usa HTML (<b>negrito</b>) e o WhatsApp usa *negrito*; os textos de usuário são escapados no Telegram */
+const FORMATO = {
+  telegram: { esc: escHtml, b: s => `<b>${escHtml(s)}</b>`, i: s => `<i>${escHtml(s)}</i>` },
+  whatsapp: { esc: s => String(s), b: s => `*${s}*`, i: s => `_${s}_` }
+};
+
+/* Mensagem de aviso: blocos separados por linha em branco para ler com folga no celular */
+function mensagemAviso(canal = "telegram") {
+  const f = FORMATO[canal];
   const d = derivados();
   if (!d) return "ClimaSense: sem leituras no momento.";
-  const ativ = atividadesAtivas();
-  const linhas = [`ClimaSense, ${localAtivo().nome} (${hhmm(Date.now())})`,
-    `Temperatura ${fmt(d.ult.t)} °C, umidade ${fmt(d.ult.u, 0)} %, pressão ${fmt(d.ult.p)} hPa.`];
-  for (const a of Object.values(ativ)) {
+  const blocos = [
+    `🌤 ${f.b("ClimaSense")}\n📍 ${f.esc(localAtivo().nome)} · ${hhmm(Date.now())}`,
+    `🌡 ${fmt(d.ult.t)} °C      💧 ${fmt(d.ult.u, 0)} %      🧭 ${fmt(d.ult.p)} hPa`
+  ];
+  for (const a of Object.values(atividadesAtivas())) {
     const r = avaliarAtividade(a, d.vars);
-    linhas.push(`${a.nome}: ${NIVEIS[r.nivel]}` + (r.motivos.length ? ` (${r.motivos[0].texto})` : ""));
+    blocos.push(`${ICONE_NIVEL[r.nivel]} ${f.b(a.nome)}\n${NIVEIS[r.nivel]}` + (r.motivos.length ? ` · ${f.esc(r.motivos[0].texto)}` : ""));
   }
-  linhas.push("Apoio à decisão, não substitui o julgamento do responsável.");
-  return linhas.join("\n");
+  blocos.push(f.i("Apoio à decisão, não substitui o julgamento do responsável."));
+  return blocos.join("\n\n");
 }
 
 /* ------------------------------ Telegram ------------------------------
@@ -1145,7 +1156,7 @@ async function enviarTelegram(texto) {
   try {
     const r = await fetch(`https://api.telegram.org/bot${TG.token()}/sendMessage`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: TG.chat(), text: texto })
+      body: JSON.stringify({ chat_id: TG.chat(), text: texto, parse_mode: "HTML" })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.description || ("HTTP " + r.status));
@@ -1167,12 +1178,12 @@ function verificarMudancas(d) {
   for (const [id, a] of Object.entries(ativ)) {
     const n = avaliarAtividade(a, d.vars).nivel;
     if (id in niveisAnteriores && niveisAnteriores[id] !== n)
-      mudou.push(`${a.nome}: ${NIVEIS[niveisAnteriores[id]]} para ${NIVEIS[n]}`);
+      mudou.push(`${FORMATO.telegram.b(a.nome)}\n${ICONE_NIVEL[niveisAnteriores[id]]} ${NIVEIS[niveisAnteriores[id]]}  →  ${ICONE_NIVEL[n]} ${NIVEIS[n]}`);
     niveisAnteriores[id] = n;
   }
   if (mudou.length && TG.auto() && Date.now() - ultimoAuto > 60000) {
     ultimoAuto = Date.now();
-    enviarTelegram("Mudança de nível:\n" + mudou.join("\n") + "\n\n" + mensagemAviso());
+    enviarTelegram("🔔 <b>Mudança de nível</b>\n\n" + mudou.join("\n\n") + "\n\n──────────\n\n" + mensagemAviso("telegram"));
   }
 }
 
@@ -1819,11 +1830,11 @@ function iniciar() {
   $("btn-telegram").addEventListener("click", async () => {
     $("btn-telegram").disabled = true;
     statusTg("Enviando…", false);
-    await enviarTelegram(mensagemAviso());
+    await enviarTelegram(mensagemAviso("telegram"));
     $("btn-telegram").disabled = false;
   });
   $("btn-whats").addEventListener("click", () =>
-    window.open("https://wa.me/?text=" + encodeURIComponent(mensagemAviso()), "_blank", "noopener"));
+    window.open("https://wa.me/?text=" + encodeURIComponent(mensagemAviso("whatsapp")), "_blank", "noopener"));
   ligarConta();
   const inicial = (location.hash || "").slice(1);
   if (inicial && document.getElementById(inicial) && document.getElementById(inicial).classList.contains("aba")) irParaAba(inicial);
