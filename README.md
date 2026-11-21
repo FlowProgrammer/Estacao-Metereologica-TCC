@@ -8,7 +8,7 @@ Mede temperatura, umidade e pressão e grava cada leitura no Firebase com data e
 Dashboard com leituras atuais, histórico com gráficos (zoom, exportação CSV) e estado da estação.
 A aba Histórico traz a tabela de validação Sensor × Open-Meteo: compara a última leitura da estação com a observação atual da API (temperatura até 1,5 °C, umidade até 6 pontos e pressão ao nível do mar até 3 hPa) e marca cada indicador como dentro ou fora da margem. As margens ficam em CONFIG.margens, no script.js.
 Estima a chance de chuva nas próximas 3 horas pela tendência da pressão, umidade e ponto de orvalho, e compara com a previsão da API Open-Meteo.
-Recomenda atividades (educação física, eventos, irrigação, pulverização, colheita) com regras editáveis por contas de especialista. Envia avisos por Telegram ou WhatsApp.
+Recomenda atividades (educação física, eventos, irrigação, pulverização, colheita) com regras que cada conta pode editar e criar (atividades novas valem só para a própria conta). Envia avisos por Telegram ou WhatsApp.
 Estrutura
 Pasta/arquivo	Conteúdo
 sketch.ino	Firmware do ESP32 (versão para simulação no Wokwi; SIMULAR_BME280 = 0 usa o sensor real)

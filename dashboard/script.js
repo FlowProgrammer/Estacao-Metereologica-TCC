@@ -76,8 +76,8 @@ function montarIcones(raiz) {
 const NIVEIS = ["Liberado", "Atenção", "Adiar"];
 
 /* Atividades e regras predefinidas, por perfil. Os limites são exemplos e devem
-   ser validados com professores e técnicos da área. Um especialista pode
-   sobrescrever os critérios (salvos na conta dele, no Firebase).
+   ser validados com professores e técnicos da área. Qualquer conta pode ajustar
+   os critérios e criar atividades novas (salvos na própria conta, no Firebase).
    Liberado = nenhum critério se aplica. Cada regra: variável, operador, limite, nível. */
 const ATIVIDADES_PADRAO = {
   educacao_fisica: {
@@ -1207,8 +1207,8 @@ function renderTudo() {
    A conta usa o Firebase Authentication (e-mail e senha) por meio das funções
    api/auth e api/usuario, e os dados ficam em /usuarios/{uid}. No modo
    demonstração (?demo=1), vale um perfil local, só neste navegador e sem senha.
-   Observação: nesta versão o tipo de conta "especialista" é escolhido pelo próprio
-   usuário e não é verificado. Em uso real, um administrador deveria aprovar. */
+   Todas as contas têm o mesmo poder: cada uma edita e cria as próprias atividades e
+   regras, sem afetar as das outras. O antigo tipo "especialista" foi retirado. */
 const PERFIS = {
   escola: "Atividades ao ar livre acadêmicas e educação física",
   agricola: "Atividades agrícolas (pulverização, irrigação, colheita)"
@@ -1256,7 +1256,7 @@ function normalizarConta(c) {
   };
 }
 
-/* Atividades que valem para quem está usando: padrão do(s) perfil(is) + critérios do especialista. */
+/* Atividades que valem para quem está usando: padrão do(s) perfil(is) + atividades e critérios da própria conta. */
 function atividadesAtivas() {
   const c = estado.conta;
   const perfis = c ? c.perfis : Object.keys(PERFIS);
@@ -1388,9 +1388,9 @@ async function restaurarConta() {
   renderTudo(); renderRegras();
 }
 
-/* ------------------------- edição das regras (especialista) ------------------------- */
-function exigirEspecialista() {
-  if (!estado.conta || estado.conta.papel !== "especialista") throw new Error("Somente especialistas editam as regras.");
+/* ------------------------- edição das regras (qualquer conta) ------------------------- */
+function exigirConta() {
+  if (!estado.conta) throw new Error("Entre na sua conta para criar ou editar atividades.");
 }
 async function contaSalvarRegras() {
   if (modoLocal()) {
@@ -1410,7 +1410,7 @@ function validarAtividade(a) {
   return null;
 }
 async function salvarAtividade(id, a) {
-  exigirEspecialista();
+  exigirConta();
   const erro = validarAtividade(a);
   if (erro) throw new Error(erro);
   estado.conta.regras[id] = {
@@ -1420,12 +1420,12 @@ async function salvarAtividade(id, a) {
   await contaSalvarRegras();
 }
 async function restaurarAtividade(id) {     // volta ao padrão (ou exclui, se for atividade nova)
-  exigirEspecialista();
+  exigirConta();
   delete estado.conta.regras[id];
   await contaSalvarRegras();
 }
 async function criarAtividade(nome, perfil) {
-  exigirEspecialista();
+  exigirConta();
   if (!String(nome || "").trim()) throw new Error("Dê um nome à atividade.");
   const c = estado.conta;
   if (!c.perfis.includes(perfil)) throw new Error("Escolha um dos seus perfis.");
@@ -1440,17 +1440,15 @@ function textoFaixaConta() {
   const c = estado.conta;
   if (!c) return "Você está como visitante e vê as regras padrão dos dois perfis. Crie uma conta para escolher o seu perfil.";
   const perfis = c.perfis.map(p => PERFIS[p]).join(" e ");
-  return `Perfil: ${perfis}. ` + (c.papel === "especialista"
-    ? "Como especialista, você pode definir os critérios na aba Regras."
-    : "As regras são as padrão; só especialistas podem alterá-las.");
+  return `Perfil: ${perfis}. Você pode ajustar os critérios e criar atividades novas; elas valem só para a sua conta.`;
 }
 function renderConta() {
   const c = estado.conta;
   $("btn-conta").classList.toggle("oculto", !!c);
   $("btn-sair").classList.toggle("oculto", !c);
-  const papel = c ? (c.papel === "especialista" ? "Especialista" : "Usuário") : "";
+  const perfilTxt = c ? c.perfis.map(p => p === "agricola" ? "Agrícola" : "Escolar").join(" e ") : "";
   texto("lado-nome", c ? (c.nome || c.email) : "Acessar conta");
-  texto("lado-sub", c ? papel : "Sincronize seus dados");
+  texto("lado-sub", c ? perfilTxt : "Sincronize seus dados");
   $("btn-conta-lado").classList.toggle("static", !!c);
   saudacao();
 }
@@ -1523,7 +1521,7 @@ function secaoRegras(a, nivel, titulo, edita) {
 function cartaoRegras(id, base, edita) {
   const a = edita ? rascunhoDe(id) : base;
   const personalizada = !!(estado.conta && estado.conta.regras[id]);
-  const selo = !(id in ATIVIDADES_PADRAO) ? "criada por especialista" : (personalizada ? "personalizada" : "padrão");
+  const selo = !(id in ATIVIDADES_PADRAO) ? "criada por você" : (personalizada ? "personalizada" : "padrão");
   const icone_ = el("span", { className: "rule-icon safe", innerHTML: icone(iconeAtividade(id, a), 20) });
   const titulo = el("div", {}, [el("small", { textContent: PERFIS[a.perfil] || a.perfil }), el("h3", { textContent: a.nome })]);
   const topo = el("div", { className: "rule-editor-head" }, [icone_, titulo, el("span", { className: "tag", textContent: selo })]);
@@ -1590,7 +1588,7 @@ function renderRegras() {
   if (!raiz) return;
   raiz.innerHTML = "";
   texto("faixa-regras", textoFaixaConta());
-  const edita = !!estado.conta && estado.conta.papel === "especialista";
+  const edita = !!estado.conta;
   const busca = estado.buscaRegras.trim().toLowerCase();
   const itens = Object.entries(atividadesAtivas()).filter(([, a]) =>
     (estado.filtroRegras === "todos" || a.perfil === estado.filtroRegras) && (!busca || a.nome.toLowerCase().includes(busca)));
@@ -1697,7 +1695,7 @@ function definirModoModal(modo) {
   const local = modoLocal();
   $("tab-entrar").classList.toggle("active", modo === "entrar");
   $("tab-criar").classList.toggle("active", modo === "criar");
-  ["campo-nome", "campo-papel", "campo-perfis", "campo-local"].forEach(id => $(id).classList.toggle("oculto", modo !== "criar"));
+  ["campo-nome", "campo-perfis", "campo-local"].forEach(id => $(id).classList.toggle("oculto", modo !== "criar"));
   ["campo-email", "campo-senha"].forEach(id => $(id).classList.toggle("oculto", local));
   texto("c-enviar-txt", modo === "criar" ? "Criar minha conta" : (local ? "Continuar" : "Entrar na minha conta"));
   texto("auth-titulo", modo === "criar" ? "Crie sua conta" : "Que bom ter você de volta");
@@ -1718,13 +1716,11 @@ async function enviarModal() {
   $("c-enviar").disabled = true;
   try {
     if (modoModal === "criar") {
-      const papel = document.querySelector('input[name="c-papel"]:checked');
       if ($("c-cep").value.trim() && !localCadastro) await acharCepCadastro();   // CEP digitado e ainda não buscado
       if ($("c-cep").value.trim() && !localCadastro) throw new Error("Corrija o CEP ou deixe o campo em branco para usar o local padrão.");
       await contaCriar({
         estacao: $("c-estacao").value, local: localCadastro,
         nome: $("c-nome").value, email: $("c-email").value.trim(), senha: $("c-senha").value,
-        papel: papel ? papel.value : "usuario",
         perfis: Array.from(document.querySelectorAll('input[name="c-perfil"]:checked')).map(x => x.value)
       });
     } else if (modoLocal()) contaContinuarLocal();
