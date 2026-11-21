@@ -1764,6 +1764,7 @@ function irParaAba(id) {
   document.querySelectorAll(".aba").forEach(x => x.classList.toggle("ativa", x.id === id));
   texto("crumb", b.dataset.titulo);
   if (id === "regras") renderRegras();
+  if (id === "agenda" && typeof iniciarAgenda === "function") iniciarAgenda();   // agenda.js
   fecharMenu();
   window.scrollTo({ top: 0 });
   try { history.replaceState(null, "", "#" + id); } catch (e) { /* ignora */ }

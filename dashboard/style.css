@@ -1948,3 +1948,19 @@ dialog.auth-dialog[open] { animation: fadeIn 0.2s; }
 .rule-card > .rule-icon, .rule-card > .status, .rule-card > .expand-rule { align-self: start; }
 .rule-card > .status { margin-top: 3px; }
 .rule-card > .expand-rule { margin-top: 1px; }
+
+/* aba Agenda */
+.agenda-painel { margin-top: 16px; padding: 22px 24px; }
+.agenda-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.agenda-topo h2 { font: 700 18px Manrope, "DM Sans", system-ui, sans-serif; letter-spacing: -0.3px; margin: 0; }
+.agenda-ajuda { margin: 6px 0 0; color: #7c8a86; font-size: 12px; line-height: 1.55; max-width: 560px; }
+.agenda-botoes { display: flex; gap: 10px; flex-wrap: wrap; }
+.agenda-upload { cursor: pointer; }
+.agenda-status { margin: 14px 0 0; font-size: 12px; min-height: 0; }
+.agenda-status:empty { display: none; }
+.agenda-status.ok { color: #39775c; }
+.agenda-status.erro { color: #b5483a; font-weight: 600; }
+.agenda-grid { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; min-height: 60px; }
+.agenda-grid .jexcel_content { max-width: 100%; }
+.agenda-resumo { margin: 12px 0 0; font-size: 12px; color: #7c8a86; }
+.agenda-resumo.aviso { color: #9b6c27; }

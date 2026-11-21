@@ -41,6 +41,7 @@
       <button data-aba="historico" data-titulo="Histórico"><svg class="i" data-i="chart" data-size="19"></svg><span>Histórico</span></button>
       <button data-aba="previsao" data-titulo="Previsão"><svg class="i" data-i="calendar" data-size="19"></svg><span>Previsão</span></button>
       <button data-aba="atividades" data-titulo="Atividades"><svg class="i" data-i="check" data-size="19"></svg><span>Atividades</span><em id="nav-ativ" class="oculto">0</em></button>
+      <button data-aba="agenda" data-titulo="Agenda"><svg class="i" data-i="calendar" data-size="19"></svg><span>Agenda</span></button>
       <button data-aba="regras" data-titulo="Regras"><svg class="i" data-i="sliders" data-size="19"></svg><span>Regras</span></button>
     </nav>
     <div class="side-footer">
@@ -374,6 +375,50 @@
         </div>
       </section>
 
+      <!-- ================================ AGENDA ================================ -->
+      <section id="agenda" class="aba page">
+        <div class="page-intro">
+          <div>
+            <span class="eyebrow">PLANEJAMENTO</span>
+            <h1>Agenda</h1>
+            <p>Importe ou digite os agendamentos para cruzar com a previsão do tempo.</p>
+          </div>
+        </div>
+
+        <section class="panel agenda-painel">
+          <div class="agenda-topo">
+            <div>
+              <h2>1. Importar planilha</h2>
+              <p class="agenda-ajuda">Aceita .xlsx, .xls e .csv com as colunas <b>Data</b>, <b>Atividade</b> e <b>Responsável</b> (até 500 linhas e 2 MB).</p>
+            </div>
+            <div class="agenda-botoes">
+              <label class="primary-btn agenda-upload">Escolher arquivo
+                <input type="file" id="agenda-arquivo" accept=".xlsx,.xls,.csv,text/csv" hidden>
+              </label>
+              <button class="outline-btn" id="agenda-modelo">Baixar modelo (.csv)</button>
+            </div>
+          </div>
+          <p class="agenda-status" id="agenda-status" role="status"></p>
+        </section>
+
+        <section class="panel agenda-painel">
+          <div class="agenda-topo">
+            <div>
+              <h2>2. Tabela de agendamentos</h2>
+              <p class="agenda-ajuda">Digite nas células ou cole (Ctrl+V) linhas copiadas do Excel ou do Google Planilhas. Use datas no formato dd/mm/aaaa.</p>
+            </div>
+            <div class="agenda-botoes">
+              <button class="outline-btn" id="agenda-add">Adicionar linha</button>
+              <button class="outline-btn" id="agenda-limpar">Limpar tabela</button>
+            </div>
+          </div>
+          <div class="agenda-grid" id="agenda-grid"></div>
+          <p class="agenda-resumo" id="agenda-resumo"></p>
+        </section>
+
+        <!-- Parte 2 (previsão por data) e Parte 3 (Firebase e Telegram) entram aqui -->
+      </section>
+
       <!-- ================================ REGRAS ================================ -->
       <section id="regras" class="aba page">
         <div class="page-intro">
@@ -472,5 +517,6 @@
 <div id="aviso" class="aviso oculto" role="status" aria-live="polite"></div>
 
 <script src="script.js"></script>
+<script src="agenda.js"></script>
 </body>
 </html>
