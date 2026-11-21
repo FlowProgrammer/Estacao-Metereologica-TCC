@@ -632,7 +632,14 @@
     } catch (e) { status(e.message, true); }
   }
 
-  window.Agenda = { normalizarData, isoParaBR, parseCSV, matrizParaLinhas, lerArquivo, lerTabela, carregarLinhas, montarPlanilha,
+  /* Ao sair da conta: esvazia a tabela e o resultado, sem tocar no Firebase */
+  function limparTela() {
+    if (planilha) carregarLinhas([]);
+    esconderResultado();
+    ["agenda-status", "agenda-analise-status", "agenda-acao-status"].forEach(id => { const e = document.getElementById(id); if (e) { e.textContent = ""; e.className = "agenda-status"; } });
+  }
+
+  window.Agenda = { limparTela, normalizarData, isoParaBR, parseCSV, matrizParaLinhas, lerArquivo, lerTabela, carregarLinhas, montarPlanilha,
                     classificar, classificarPorRegras, varsDoDia, diasDasAtividades, analisarLinhas, buscarPrevisaoDiaria, analisar, resultado,
                     montarRegistro, montarMensagemRiscos, avisarRiscos, salvarAgenda, carregarAgendaSalva };
   window.iniciarAgenda = iniciarAgenda;

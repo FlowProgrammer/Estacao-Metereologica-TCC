@@ -1422,7 +1422,20 @@ function contaContinuarLocal() {
 }
 function contaSair() {
   if (modoLocal()) localStorage.setItem("conta_local_ativa", "0"); else SESSAO.limpar();
-  estado.conta = null; estado.rascunho = {};
+  estado.conta = null; estado.rascunho = {}; estado.calMes = {};
+}
+/* Ao sair: apaga o que ficou guardado neste navegador (sessão, estação escolhida, token e chat do
+   Telegram, avisos já enviados) e limpa a tela (campos do Telegram, tabela da Agenda). Os dados da
+   conta ficam no Firebase e voltam ao entrar de novo. No modo demonstração o perfil local é o
+   "banco" e continua guardado; só deixa de estar ativo. */
+const CHAVES_DO_NAVEGADOR = ["sessao", "estacao", "tg_token", "tg_chat", "tg_auto", "agenda_tg_enviados", "agenda_tg_auto"];
+function limparDadosDoNavegador() {
+  CHAVES_DO_NAVEGADOR.forEach(k => { try { localStorage.removeItem(k); } catch (e) { /* sem acesso: tudo bem */ } });
+  estado.estacao = CONFIG.estacao; estado.leituras = [];
+  if ($("tg-token")) { $("tg-token").value = ""; $("tg-chat").value = ""; $("tg-auto").checked = false; }
+  if ($("agenda-tg-auto")) $("agenda-tg-auto").checked = false;
+  if (window.Agenda && window.Agenda.limparTela) window.Agenda.limparTela();
+  atualizarTextosLocal();
 }
 async function restaurarConta() {
   try {
@@ -1924,7 +1937,12 @@ function ligarConta() {
   const dlg = $("dlg-conta");
   $("btn-conta").addEventListener("click", () => abrirModal("entrar"));
   $("btn-conta-lado").addEventListener("click", () => { if (!estado.conta) abrirModal("entrar"); else irParaAba("regras"); });
-  $("btn-sair").addEventListener("click", () => { contaSair(); renderTudo(); renderRegras(); });
+  $("btn-sair").addEventListener("click", () => {
+    contaSair(); limparDadosDoNavegador();
+    Object.keys(graficos).forEach(k => { try { graficos[k].destroy(); } catch (e) { /* ignora */ } delete graficos[k]; });
+    renderTudo(); renderRegras(); atualizar();
+    avisar("Você saiu. Os dados deste navegador foram apagados.");
+  });
   $("tab-entrar").addEventListener("click", () => definirModoModal("entrar"));
   $("tab-criar").addEventListener("click", () => definirModoModal("criar"));
   $("c-cancelar").addEventListener("click", () => dlg.close());
@@ -2036,5 +2054,5 @@ if (typeof document !== "undefined") {
   document.addEventListener("DOMContentLoaded", iniciar);
 }
 if (typeof module !== "undefined") {
-  module.exports = { sessoesDe, construirEixo, serie, buscarCep, normalizarLocal, pressaoNivelMar, idEstacao, localAtivo, inicioUltimaSessao, comQuebras, reduzir, pontoIsolado, leituraValida, buscarLeituras, CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, restaurarAtividade, criarAtividade, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
+  module.exports = { sessoesDe, construirEixo, serie, buscarCep, normalizarLocal, pressaoNivelMar, idEstacao, localAtivo, inicioUltimaSessao, comQuebras, reduzir, pontoIsolado, leituraValida, buscarLeituras, CONFIG, atividadesAtivas, contaCriar, contaEntrar, contaSair, contaContinuarLocal, restaurarConta, salvarAtividade, removerAtividade, restaurarRecomendada, adicionarRecomendada, criarAtividade, limparDadosDoNavegador, normalizarConta, renderRegras, renderConta, textoFaixaConta, traduzErroAuth, limitesY, rotuloX, renderTudo, estado, enviarTelegram, verificarMudancas, mensagemAviso, derivados, pontoOrvalho, indiceCalor, tendencia, anomalia, estimarChuva, avaliarAtividade, ATIVIDADES_PADRAO };
 }
