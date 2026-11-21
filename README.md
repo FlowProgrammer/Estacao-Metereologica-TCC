@@ -22,6 +22,10 @@ python3 -m http.server 8000
 
 As opções (estações, coordenadas, margens) ficam em CONFIG, no início de dashboard/script.js. O navegador não fala com o Firebase: ele chama as funções da pasta dashboard/api (Vercel), que guardam a URL do banco e as chaves em variáveis de ambiente. Para testar sem o Vercel, abra a página com ?demo=1 (dados simulados).
 
+## Agenda de atividades
+
+A aba Agenda (dashboard/agenda.js) importa uma planilha .xlsx, .xls ou .csv (Data, Atividade, Responsável) ou aceita dados colados, cruza cada data com a previsão de 7 dias da Open-Meteo, marca o risco de chuva, salva a agenda na conta (Firebase) e avisa no Telegram. Os limites de risco ficam em RISCO, no início do agenda.js.
+
 ## Publicar no Vercel (sem expor chaves)
 
 1. No Vercel, em Settings > General, deixe o Root Directory como dashboard (a pasta api precisa ficar dentro dela).

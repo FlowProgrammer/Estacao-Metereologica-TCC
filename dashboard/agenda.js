@@ -8,8 +8,13 @@
    - Jspreadsheet CE mostra a planilha editável (digitar ou colar do Excel).
    - As bibliotecas só são baixadas quando a aba Agenda é aberta.
 
-   Entrada da Parte 2: window.Agenda.lerTabela()
+   Parte 1: window.Agenda.lerTabela()
    -> [{ linha, dataISO, dataBR, atividade, responsavel, erros: [] }]
+   Parte 2: window.Agenda.analisar() cruza cada data com a previsão da
+   Open-Meteo e guarda o resultado em window.Agenda.resultado
+   -> [{ ...linha, risco, motivo, previsao }]   (risco: alto | moderado | baixo | sem-previsao | passada | invalida)
+   Parte 3: salvarAgenda() grava em /usuarios/{uid}/agenda (pela função api/usuario do Vercel);
+   avisarRiscos() manda ao Telegram as atividades com risco alto ou em atenção.
    ===================================================================== */
 
 (function () {
@@ -25,7 +30,16 @@
     planilhaCss: "https://cdn.jsdelivr.net/npm/jspreadsheet-ce@4/dist/jspreadsheet.css"
   };
 
+  /* Critérios de risco de chuva (Parte 2). Ajuste aqui se o professor definir outros limites. */
+  const RISCO = {
+    altoProb: 70, altoMm: 5,        // risco ALTO: chance >= 70 % ou chuva >= 5 mm no dia
+    modProb: 40, modMm: 1,          // risco MODERADO: chance >= 40 % ou chuva >= 1 mm
+    dias: 7                         // alcance da previsão consultada (hoje + 6 dias)
+  };
+  const CODIGOS_CHUVA = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99];   // códigos WMO de garoa, chuva, pancadas e trovoada
+
   let planilha = null;      // instância do Jspreadsheet
+  let resultado = [];       // última análise (Parte 2)
   let montando = null;      // promessa da montagem (evita montar duas vezes)
 
   /* ---------- 1) carregamento das bibliotecas ---------- */
@@ -180,9 +194,9 @@
           minDimensions: [3, LINHAS_MINIMAS],
           allowInsertColumn: false, allowDeleteColumn: false, allowRenameColumn: false, allowManualInsertColumn: false,
           tableOverflow: true, tableWidth: "100%", tableHeight: "380px",
-          onafterchanges: () => setTimeout(atualizarResumo, 0),
-          oninsertrow: () => setTimeout(atualizarResumo, 0),
-          ondeleterow: () => setTimeout(atualizarResumo, 0)
+          onafterchanges: () => { esconderResultado(); setTimeout(atualizarResumo, 0); },
+          oninsertrow: () => { esconderResultado(); setTimeout(atualizarResumo, 0); },
+          ondeleterow: () => { esconderResultado(); setTimeout(atualizarResumo, 0); }
         });
         atualizarResumo();
         return planilha;
@@ -199,6 +213,7 @@
     const dados = linhas.slice();
     while (dados.length < LINHAS_MINIMAS) dados.push(["", "", ""]);
     planilha.setData(dados);
+    esconderResultado();
     atualizarResumo();
   }
 
@@ -218,7 +233,234 @@
     return linhas;
   }
 
-  /* ---------- 6) interface ---------- */
+  /* ---------- 6) previsão e risco climático (Parte 2) ---------- */
+  function descreverTempo(c) {
+    if (c === 0) return "Céu limpo";
+    if (c >= 1 && c <= 3) return "Parcialmente nublado";
+    if (c === 45 || c === 48) return "Neblina";
+    if (c >= 51 && c <= 57) return "Garoa";
+    if ((c >= 61 && c <= 67)) return "Chuva";
+    if (c >= 80 && c <= 82) return "Pancadas de chuva";
+    if (c >= 95) return "Trovoada";
+    return "Tempo variável";
+  }
+
+  /* Uma consulta só (mesmo local da estação) traz os próximos 7 dias.
+     Devolve { "AAAA-MM-DD": { prob, mm, tmax, tmin, vento, codigo } } */
+  async function buscarPrevisaoDiaria() {
+    const loc = localAtivo();                                  // script.js: local da estação ativa
+    const url = "https://api.open-meteo.com/v1/forecast"
+      + `?latitude=${loc.lat}&longitude=${loc.lon}`
+      + "&daily=precipitation_probability_max,precipitation_sum,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,weather_code"
+      + `&timezone=${encodeURIComponent(CONFIG.fusoApi)}&forecast_days=${RISCO.dias}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("A Open-Meteo respondeu HTTP " + r.status);
+    const d = (await r.json()).daily;
+    if (!d || !d.time) throw new Error("A Open-Meteo não devolveu a previsão diária.");
+    const previsao = {};
+    d.time.forEach((dia, i) => {
+      previsao[dia] = {
+        prob: d.precipitation_probability_max[i], mm: d.precipitation_sum[i],
+        tmax: d.temperature_2m_max[i], tmin: d.temperature_2m_min[i],
+        vento: d.wind_speed_10m_max[i], codigo: d.weather_code[i]
+      };
+    });
+    return previsao;
+  }
+
+  /* Classifica o dia: alto, moderado ou baixo (por probabilidade, volume ou código de chuva) */
+  function classificar(p) {
+    const prob = p.prob == null ? 0 : p.prob, mm = p.mm == null ? 0 : p.mm;
+    const motivos = [];
+    if (prob >= RISCO.modProb) motivos.push(`chance de chuva de ${Math.round(prob)} %`);
+    if (mm >= RISCO.modMm) motivos.push(`${mm.toFixed(1).replace(".", ",")} mm previstos`);
+    const chuvoso = CODIGOS_CHUVA.includes(p.codigo);
+    if (chuvoso && !motivos.length) motivos.push(descreverTempo(p.codigo).toLowerCase() + " previsto(a)");
+    const nivel = (prob >= RISCO.altoProb || mm >= RISCO.altoMm) ? "alto"
+      : (prob >= RISCO.modProb || mm >= RISCO.modMm || chuvoso) ? "moderado" : "baixo";
+    return { risco: nivel, motivo: motivos.length ? motivos.join(" e ") : "Sem sinal de chuva", };
+  }
+
+  /* Cruza as linhas da tabela com a previsão. Função pura (não mexe na tela). */
+  function analisarLinhas(linhas, previsao) {
+    const dias = Object.keys(previsao).sort();
+    const hoje = dias[0], ultimo = dias[dias.length - 1];
+    const saida = linhas.map(l => {
+      if (l.erros.length) return { ...l, risco: "invalida", motivo: l.erros[0], previsao: null };
+      if (l.dataISO < hoje) return { ...l, risco: "passada", motivo: "A data já passou", previsao: null };
+      const p = previsao[l.dataISO];
+      if (!p) return { ...l, risco: "sem-previsao", motivo: `Fora do alcance da previsão (até ${isoParaBR(ultimo)})`, previsao: null };
+      return { ...l, ...classificar(p), previsao: p };
+    });
+    return saida.sort(   // por data; linhas inválidas por último
+      (a, b) => (a.risco === "invalida") - (b.risco === "invalida") || (a.dataISO || "9").localeCompare(b.dataISO || "9") || a.linha - b.linha);
+  }
+
+  const ROTULOS = { alto: "Risco alto", moderado: "Atenção", baixo: "Sem risco", "sem-previsao": "Sem previsão", passada: "Passada", invalida: "Corrigir" };
+
+  function contar(lista) {
+    const c = { alto: 0, moderado: 0, baixo: 0, "sem-previsao": 0, passada: 0, invalida: 0 };
+    lista.forEach(i => c[i.risco]++);
+    return c;
+  }
+
+  /* Desenha a faixa-resumo e a tabela de resultados (textContent: nada vira HTML) */
+  function mostrarResultado(lista) {
+    const c = contar(lista);
+    const faixa = $("agenda-faixa");
+    const partes = [];
+    if (c.alto) partes.push(`${c.alto} com risco alto de chuva`);
+    if (c.moderado) partes.push(`${c.moderado} em atenção`);
+    if (c.baixo) partes.push(`${c.baixo} sem risco`);
+    if (c["sem-previsao"] + c.passada) partes.push(`${c["sem-previsao"] + c.passada} sem previsão`);
+    if (c.invalida) partes.push(`${c.invalida} para corrigir`);
+    faixa.textContent = partes.join(" · ") || "Nenhuma atividade analisada.";
+    faixa.className = "agenda-faixa " + (c.alto ? "alto" : c.moderado ? "moderado" : "baixo");
+
+    const corpo = $("agenda-corpo");
+    corpo.textContent = "";
+    lista.forEach(i => {
+      const tr = document.createElement("tr");
+      const celula = (txt, classe) => { const td = document.createElement("td"); td.textContent = txt; if (classe) td.className = classe; tr.appendChild(td); return td; };
+      celula(i.dataBR);
+      celula(i.atividade || "(sem nome)");
+      celula(i.responsavel || "-");
+      const p = i.previsao;
+      celula(p ? `${descreverTempo(p.codigo)}, ${Math.round(p.tmin)}° a ${Math.round(p.tmax)}°` : "-");
+      celula(p ? `${p.prob == null ? "-" : Math.round(p.prob) + " %"} · ${(p.mm || 0).toFixed(1).replace(".", ",")} mm` : "-");
+      const td = celula("", "agenda-col-risco");
+      const selo = document.createElement("span");
+      selo.className = "agenda-risco " + i.risco;
+      selo.textContent = ROTULOS[i.risco];
+      td.appendChild(selo);
+      const m = document.createElement("small");
+      m.textContent = i.motivo;
+      td.appendChild(m);
+      corpo.appendChild(tr);
+    });
+    $("agenda-resultado").classList.remove("oculto");
+  }
+
+  function esconderResultado() {
+    resultado = [];
+    window.Agenda.resultado = resultado;
+    const r = $("agenda-resultado");
+    if (r) r.classList.add("oculto");
+  }
+
+  /* Botão "Analisar clima": lê a tabela, consulta a previsão e mostra o risco de cada atividade */
+  async function analisar() {
+    const st = $("agenda-analise-status");
+    const aviso = (msg, erro) => { st.textContent = msg; st.className = "agenda-status" + (erro ? " erro" : msg ? " ok" : ""); };
+    try {
+      await montarPlanilha();
+      const linhas = lerTabela();
+      if (!linhas.length) return aviso("Preencha a tabela antes de analisar.", true);
+      if (!linhas.some(l => !l.erros.length)) return aviso("Nenhuma linha válida. Corrija as datas e as atividades.", true);
+      aviso("Consultando a previsão na Open-Meteo…");
+      const previsao = await buscarPrevisaoDiaria();
+      resultado = analisarLinhas(linhas, previsao);
+      window.Agenda.resultado = resultado;
+      mostrarResultado(resultado);
+      aviso("");
+      if (localStorage.getItem(CHAVE_AUTO) === "1") {                 // aviso automático (só atividades novas)
+        const r = await avisarRiscos(resultado, { apenasNovos: true });
+        if (r.enviado) acao(`Alerta enviado ao Telegram (${r.qtd} ${r.qtd === 1 ? "atividade" : "atividades"}).`);
+        else if (r.motivo) acao(r.motivo, !/já foram|Nenhuma/.test(r.motivo));
+      }
+    } catch (e) {
+      aviso("Não foi possível analisar: " + e.message, true);
+    }
+  }
+
+  /* ---------- 7) banco de dados e Telegram (Parte 3) ---------- */
+  const MAX_MENSAGEM = 25;            // atividades por mensagem (o Telegram aceita até 4096 caracteres)
+  const CHAVE_LOCAL = "agenda_local"; // modo demonstração: a agenda fica só neste navegador
+  const CHAVE_ENVIADOS = "agenda_tg_enviados";
+  const CHAVE_AUTO = "agenda_tg_auto";
+
+  /* Monta o objeto que vai para o Firebase: { atualizadoEm, itens: { "AAAA-MM-DD-001": {...} } }
+     (objeto com chaves, e não lista, porque é o formato natural do Realtime Database) */
+  function montarRegistro(lista) {
+    const itens = {};
+    lista.filter(i => i.risco !== "invalida").forEach((i, n) => {
+      const item = { dataISO: i.dataISO, atividade: i.atividade, responsavel: i.responsavel, risco: i.risco, motivo: i.motivo };
+      if (i.previsao && i.previsao.prob != null) item.prob = i.previsao.prob;
+      if (i.previsao && i.previsao.mm != null) item.mm = i.previsao.mm;
+      itens[`${i.dataISO}-${String(n + 1).padStart(3, "0")}`] = item;   // chaves sem ponto, barra ou espaço
+    });
+    return { atualizadoEm: Date.now(), itens };
+  }
+
+  /* Texto do alerta (sem formatação especial, para o Telegram não recusar caracteres) */
+  function montarMensagemRiscos(lista) {
+    const risco = lista.filter(i => i.risco === "alto" || i.risco === "moderado");
+    if (!risco.length) return "";
+    const linhas = risco.slice(0, MAX_MENSAGEM).map(i =>
+      `${i.risco === "alto" ? "🔴" : "🟡"} ${i.dataBR} · ${i.atividade}${i.responsavel ? " (" + i.responsavel + ")" : ""}\n    ${i.motivo}`);
+    if (risco.length > MAX_MENSAGEM) linhas.push(`… e mais ${risco.length - MAX_MENSAGEM}.`);
+    return ["ClimaSense: atividades com risco de chuva", "", ...linhas].join("\n");
+  }
+
+  const chaveAviso = i => `${i.dataISO}|${i.atividade}|${i.risco}`;
+  function lerEnviados() {
+    try { return new Set(JSON.parse(localStorage.getItem(CHAVE_ENVIADOS) || "[]")); } catch (e) { return new Set(); }
+  }
+  function gravarEnviados(lista) {
+    const todos = [...lerEnviados(), ...lista.map(chaveAviso)].slice(-300);   // guarda só os 300 mais recentes
+    try { localStorage.setItem(CHAVE_ENVIADOS, JSON.stringify(todos)); } catch (e) { /* sem espaço: tudo bem */ }
+  }
+
+  /* Avalia a lista e, havendo risco alto ou atenção, dispara o alerta no Telegram.
+     Com { apenasNovos: true } não repete atividades que já foram avisadas.
+     Devolve { enviado, qtd, motivo } e nunca lança erro. */
+  async function avisarRiscos(lista, opcoes) {
+    const risco = lista.filter(i => i.risco === "alto" || i.risco === "moderado");
+    if (!risco.length) return { enviado: false, qtd: 0, motivo: "Nenhuma atividade com risco de chuva." };
+    if (typeof TG === "undefined" || !TG.token() || !TG.chat()) {
+      return { enviado: false, qtd: 0, motivo: "Configure o token e o chat id do Telegram na aba Atividades." };
+    }
+    let alvo = risco;
+    if (opcoes && opcoes.apenasNovos) {
+      const ja = lerEnviados();
+      alvo = risco.filter(i => !ja.has(chaveAviso(i)));
+      if (!alvo.length) return { enviado: false, qtd: 0, motivo: "Todas as atividades com risco já foram avisadas." };
+    }
+    const ok = await enviarTelegram(montarMensagemRiscos(alvo));      // script.js: POST em api.telegram.org/bot.../sendMessage
+    if (!ok) {
+      const e = document.getElementById("tg-status");
+      return { enviado: false, qtd: 0, motivo: (e && e.textContent) || "Falha ao enviar para o Telegram." };
+    }
+    gravarEnviados(alvo);
+    return { enviado: true, qtd: alvo.length, motivo: "" };
+  }
+
+  /* Salva a agenda processada: no Firebase (conta) ou, no modo demonstração, neste navegador */
+  async function salvarAgenda() {
+    if (typeof estado === "undefined" || !estado.conta) throw new Error("Entre na sua conta (botão Entrar) para salvar a agenda.");
+    if (!resultado.length) await analisar();
+    const lista = resultado.filter(i => i.risco !== "invalida");
+    if (!lista.length) throw new Error("Não há atividades válidas para salvar.");
+    const registro = montarRegistro(lista);
+    if (modoLocal()) localStorage.setItem(CHAVE_LOCAL, JSON.stringify(registro));
+    else await dbUsuario("PUT", "/agenda", registro);                // script.js: Vercel api/usuario -> /usuarios/{uid}/agenda
+    return Object.keys(registro.itens).length;
+  }
+
+  /* Lê a agenda salva e devolve as linhas [data, atividade, responsável] para a tabela */
+  async function carregarAgendaSalva() {
+    if (typeof estado === "undefined" || !estado.conta) throw new Error("Entre na sua conta (botão Entrar) para carregar a agenda.");
+    let reg;
+    if (modoLocal()) { try { reg = JSON.parse(localStorage.getItem(CHAVE_LOCAL) || "null"); } catch (e) { reg = null; } }
+    else reg = await dbUsuario("GET", "/agenda");
+    if (!reg || !reg.itens) return [];
+    return Object.keys(reg.itens).sort().map(k => {
+      const i = reg.itens[k];
+      return [isoParaBR(i.dataISO), limpar(i.atividade), limpar(i.responsavel)];
+    });
+  }
+
+  /* ---------- 8) interface ---------- */
   const $ = id => document.getElementById(id);
 
   function status(msg, erro) {
@@ -227,9 +469,22 @@
     el.className = "agenda-status" + (erro ? " erro" : msg ? " ok" : "");
   }
 
+  function acao(msg, erro) {
+    const el = $("agenda-acao-status");
+    if (!el) return;
+    el.textContent = msg;
+    el.className = "agenda-status" + (erro ? " erro" : msg ? " ok" : "");
+  }
+
+  let _atualizando = false;
   function atualizarResumo() {
     const el = $("agenda-resumo");
-    if (!el || !planilha) return;
+    if (!el || !planilha || _atualizando) return;
+    _atualizando = true;
+    try { desenharResumo(el); } finally { _atualizando = false; }
+  }
+
+  function desenharResumo(el) {
     const linhas = lerTabela();
     const ruins = linhas.filter(l => l.erros.length);
     // pinta de vermelho claro a célula da data inválida
@@ -239,7 +494,7 @@
       for (let i = 0; i < dados.length; i++) planilha.setStyle("A" + (i + 1), "background-color", comErro.has(i + 1) ? "#fbe9e5" : "");
     } catch (e) { /* o estilo é só um detalhe visual */ }
     if (!linhas.length) { el.textContent = "Nenhum agendamento ainda."; el.className = "agenda-resumo"; return; }
-    el.className = "agenda-resumo" + (ruins.length ? " aviso" : "");
+    el.className = "agenda-resumo" + (ruins.length ? " atencao" : "");
     el.textContent = `${linhas.length - ruins.length} de ${linhas.length} agendamentos válidos.`
       + (ruins.length ? ` Corrija: ${ruins.slice(0, 5).map(l => `linha ${l.linha} (${l.erros[0].toLowerCase()})`).join("; ")}${ruins.length > 5 ? "…" : ""}.` : "");
   }
@@ -282,6 +537,37 @@
       e.target.value = "";                      // permite escolher o mesmo arquivo de novo
     });
     $("agenda-modelo").addEventListener("click", baixarModelo);
+    $("agenda-analisar").addEventListener("click", analisar);
+    $("agenda-tg-auto").checked = localStorage.getItem(CHAVE_AUTO) === "1";
+    $("agenda-tg-auto").addEventListener("change", e => localStorage.setItem(CHAVE_AUTO, e.target.checked ? "1" : "0"));
+    $("agenda-salvar").addEventListener("click", async () => {
+      acao("Salvando…");
+      try {
+        const n = await salvarAgenda();
+        acao(`${n} ${n === 1 ? "atividade salva" : "atividades salvas"} às ${hhmm(Date.now())}.`);
+      } catch (e) { acao(e.message, true); }
+    });
+    $("agenda-carregar").addEventListener("click", async () => {
+      acao("Buscando a agenda salva…");
+      try {
+        const linhas = await carregarAgendaSalva();
+        if (!linhas.length) return acao("Ainda não há agenda salva nesta conta.", true);
+        await montarPlanilha();
+        carregarLinhas(linhas);
+        acao(`${linhas.length} atividades carregadas. Clique em Analisar clima para atualizar o risco.`);
+      } catch (e) { acao(e.message, true); }
+    });
+    $("agenda-telegram").addEventListener("click", async () => {
+      try {
+        if (!resultado.length) await analisar();
+        if (!resultado.length) return acao("Analise o clima antes de avisar.", true);
+        acao("Enviando…");
+        const r = await avisarRiscos(resultado);                      // botão manual: reenvia mesmo as já avisadas
+        if (r.enviado) acao(`Alerta enviado ao Telegram (${r.qtd} ${r.qtd === 1 ? "atividade" : "atividades"}).`);
+        else acao(r.motivo, true);
+      } catch (e) { acao(e.message, true); }
+    });
+    $("agenda-criterios").textContent = `Risco alto: chance de chuva ≥ ${RISCO.altoProb} % ou ≥ ${RISCO.altoMm} mm no dia. Atenção: ≥ ${RISCO.modProb} % ou ≥ ${RISCO.modMm} mm, ou chuva no código do tempo.`;
     $("agenda-add").addEventListener("click", async () => {
       try { (await montarPlanilha()).insertRow(); } catch (e) { status(e.message, true); }
     });
@@ -298,7 +584,9 @@
     catch (e) { status(e.message, true); }
   }
 
-  window.Agenda = { normalizarData, isoParaBR, parseCSV, matrizParaLinhas, lerArquivo, lerTabela, carregarLinhas, montarPlanilha };
+  window.Agenda = { normalizarData, isoParaBR, parseCSV, matrizParaLinhas, lerArquivo, lerTabela, carregarLinhas, montarPlanilha,
+                    classificar, analisarLinhas, buscarPrevisaoDiaria, analisar, resultado,
+                    montarRegistro, montarMensagemRiscos, avisarRiscos, salvarAgenda, carregarAgendaSalva };
   window.iniciarAgenda = iniciarAgenda;
 
   // se a página abriu direto em #agenda

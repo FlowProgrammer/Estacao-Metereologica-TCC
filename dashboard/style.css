@@ -1963,4 +1963,22 @@ dialog.auth-dialog[open] { animation: fadeIn 0.2s; }
 .agenda-grid { margin-top: 16px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; min-height: 60px; }
 .agenda-grid .jexcel_content { max-width: 100%; }
 .agenda-resumo { margin: 12px 0 0; font-size: 12px; color: #7c8a86; }
-.agenda-resumo.aviso { color: #9b6c27; }
+.agenda-resumo.atencao { color: #9b6c27; }
+
+/* aba Agenda: resultado da análise de clima */
+.agenda-faixa { margin-top: 16px; padding: 12px 16px; border-radius: 10px; font-size: 13px; font-weight: 700; border: 1px solid; }
+.agenda-faixa.alto { color: #ae5547; background: #fbece9; border-color: #f2cfc8; }
+.agenda-faixa.moderado { color: #9b6c27; background: #fff7e8; border-color: #f4dfb8; }
+.agenda-faixa.baixo { color: #39775c; background: #eef7f1; border-color: #cfe6d7; }
+.agenda-rolagem { overflow-x: auto; margin-top: 12px; }
+.agenda-tabela { width: 100%; min-width: 760px; border-collapse: collapse; font-size: 12px; }
+.agenda-tabela th { text-align: left; padding: 10px 12px; color: #8a9693; font-size: 10px; letter-spacing: 1px; font-weight: 800; text-transform: uppercase; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.agenda-tabela td { padding: 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.agenda-col-risco small { display: block; margin-top: 5px; color: #8a9693; font-size: 10px; }
+.agenda-risco { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 10px; font-weight: 700; white-space: nowrap; }
+.agenda-risco.alto { color: #ae5547; background: #f9e7e3; }
+.agenda-risco.moderado { color: #9b6c27; background: #fff2da; }
+.agenda-risco.baixo { color: #39775c; background: #e8f4ec; }
+.agenda-risco.sem-previsao, .agenda-risco.passada, .agenda-risco.invalida { color: #6d7a76; background: #eef1f0; }
+.agenda-auto { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 12px; color: #55645f; cursor: pointer; }
+.agenda-auto input { accent-color: #3f8a76; }

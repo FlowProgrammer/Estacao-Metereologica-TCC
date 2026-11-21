@@ -416,7 +416,43 @@
           <p class="agenda-resumo" id="agenda-resumo"></p>
         </section>
 
-        <!-- Parte 2 (previsão por data) e Parte 3 (Firebase e Telegram) entram aqui -->
+        <section class="panel agenda-painel">
+          <div class="agenda-topo">
+            <div>
+              <h2>3. Previsão para as atividades</h2>
+              <p class="agenda-ajuda">Cruza a data de cada atividade com a previsão da Open-Meteo (próximos 7 dias, para o local da estação). <span id="agenda-criterios"></span></p>
+            </div>
+            <div class="agenda-botoes">
+              <button class="primary-btn" id="agenda-analisar">Analisar clima</button>
+            </div>
+          </div>
+          <p class="agenda-status" id="agenda-analise-status" role="status"></p>
+          <div id="agenda-resultado" class="oculto">
+            <div class="agenda-faixa" id="agenda-faixa"></div>
+            <div class="agenda-rolagem">
+              <table class="agenda-tabela">
+                <thead><tr><th>Data</th><th>Atividade</th><th>Responsável</th><th>Previsão</th><th>Chuva</th><th>Risco</th></tr></thead>
+                <tbody id="agenda-corpo"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel agenda-painel">
+          <div class="agenda-topo">
+            <div>
+              <h2>4. Salvar e avisar</h2>
+              <p class="agenda-ajuda">Salva a agenda analisada na sua conta (Firebase) e envia ao Telegram as atividades com risco alto ou em atenção. O Telegram é configurado na aba Atividades.</p>
+            </div>
+            <div class="agenda-botoes">
+              <button class="primary-btn" id="agenda-salvar">Salvar agenda</button>
+              <button class="outline-btn" id="agenda-carregar">Carregar agenda salva</button>
+              <button class="outline-btn" id="agenda-telegram">Avisar no Telegram</button>
+            </div>
+          </div>
+          <label class="agenda-auto"><input type="checkbox" id="agenda-tg-auto"> Avisar no Telegram ao analisar o clima (só atividades ainda não avisadas)</label>
+          <p class="agenda-status" id="agenda-acao-status" role="status"></p>
+        </section>
       </section>
 
       <!-- ================================ REGRAS ================================ -->
