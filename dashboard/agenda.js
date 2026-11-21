@@ -7,6 +7,9 @@
      porque o CSV brasileiro costuma vir com ";" e em Windows-1252.
    - Jspreadsheet CE mostra a planilha editável (digitar ou colar do Excel).
    - As bibliotecas só são baixadas quando a aba Agenda é aberta.
+   - Os dias agendados ficam em cada atividade da conta (aba Regras). A tabela é a visão
+     de trabalho: "Salvar agenda" distribui as linhas pelas atividades pelo nome e a análise
+     usa os critérios (Adiar / Atenção / Liberado) da atividade de cada linha.
 
    Parte 1: window.Agenda.lerTabela()
    -> [{ linha, dataISO, dataBR, atividade, responsavel, erros: [] }]
@@ -34,7 +37,7 @@
   const RISCO = {
     altoProb: 70, altoMm: 5,        // risco ALTO: chance >= 70 % ou chuva >= 5 mm no dia
     modProb: 40, modMm: 1,          // risco MODERADO: chance >= 40 % ou chuva >= 1 mm
-    dias: 7                         // alcance da previsão consultada (hoje + 6 dias)
+    dias: 16                        // alcance da previsão consultada (hoje + 15 dias, o máximo da Open-Meteo)
   };
   const CODIGOS_CHUVA = [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82, 95, 96, 99];   // códigos WMO de garoa, chuva, pancadas e trovoada
 
@@ -245,13 +248,13 @@
     return "Tempo variável";
   }
 
-  /* Uma consulta só (mesmo local da estação) traz os próximos 7 dias.
+  /* Uma consulta só (mesmo local da estação) traz os próximos 16 dias (hoje + 15).
      Devolve { "AAAA-MM-DD": { prob, mm, tmax, tmin, vento, codigo } } */
   async function buscarPrevisaoDiaria() {
     const loc = localAtivo();                                  // script.js: local da estação ativa
     const url = "https://api.open-meteo.com/v1/forecast"
       + `?latitude=${loc.lat}&longitude=${loc.lon}`
-      + "&daily=precipitation_probability_max,precipitation_sum,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,weather_code"
+      + "&daily=precipitation_probability_max,precipitation_sum,temperature_2m_max,temperature_2m_min,wind_speed_10m_max,weather_code,relative_humidity_2m_mean,apparent_temperature_max"
       + `&timezone=${encodeURIComponent(CONFIG.fusoApi)}&forecast_days=${RISCO.dias}`;
     const r = await fetch(url);
     if (!r.ok) throw new Error("A Open-Meteo respondeu HTTP " + r.status);
@@ -262,7 +265,9 @@
       previsao[dia] = {
         prob: d.precipitation_probability_max[i], mm: d.precipitation_sum[i],
         tmax: d.temperature_2m_max[i], tmin: d.temperature_2m_min[i],
-        vento: d.wind_speed_10m_max[i], codigo: d.weather_code[i]
+        vento: d.wind_speed_10m_max[i], codigo: d.weather_code[i],
+        umid: d.relative_humidity_2m_mean ? d.relative_humidity_2m_mean[i] : null,
+        sens: d.apparent_temperature_max ? d.apparent_temperature_max[i] : null
       };
     });
     return previsao;
@@ -282,7 +287,21 @@
   }
 
   /* Cruza as linhas da tabela com a previsão. Função pura (não mexe na tela). */
-  function analisarLinhas(linhas, previsao) {
+  /* Variáveis diárias que dá para comparar com os critérios da atividade. Chance de chuva de 3 h e de 6 h
+     usam a chance máxima do dia; chance da estação e queda de pressão só existem em tempo real e ficam de fora. */
+  function varsDoDia(p) {
+    return { temperatura: p.tmax, umidade: p.umid, indice_calor: p.sens, chuva_api_3h: p.prob, chuva_api_6h: p.prob, vento_api: p.vento };
+  }
+  const NIVEL_RISCO = ["baixo", "moderado", "alto"];
+  function classificarPorRegras(ativ, p) {
+    if (!ativ.regras || !ativ.regras.length) return { risco: "baixo", motivo: "Atividade sem critérios: defina na aba Regras", regras: true };
+    const r = avaliarAtividade(ativ, varsDoDia(p));        // script.js
+    return { risco: NIVEL_RISCO[r.nivel], motivo: r.motivos.length ? r.motivos.map(m => m.texto).join("; ") : "Nenhum critério se aplica", regras: true };
+  }
+
+  /* atividades: lista de atividades da conta ({ nome, regras }). Sem lista (visitante), vale só a chuva. */
+  function analisarLinhas(linhas, previsao, atividades) {
+    const porNome = new Map((atividades || []).map(a => [semAcento(a.nome), a]));
     const dias = Object.keys(previsao).sort();
     const hoje = dias[0], ultimo = dias[dias.length - 1];
     const saida = linhas.map(l => {
@@ -290,13 +309,16 @@
       if (l.dataISO < hoje) return { ...l, risco: "passada", motivo: "A data já passou", previsao: null };
       const p = previsao[l.dataISO];
       if (!p) return { ...l, risco: "sem-previsao", motivo: `Fora do alcance da previsão (até ${isoParaBR(ultimo)})`, previsao: null };
-      return { ...l, ...classificar(p), previsao: p };
+      const ativ = porNome.get(semAcento(l.atividade));
+      if (ativ) return { ...l, ...classificarPorRegras(ativ, p), previsao: p };
+      const base = classificar(p);
+      return { ...l, ...base, motivo: porNome.size ? `${base.motivo} (atividade sem regras na conta; só a chuva foi avaliada)` : base.motivo, previsao: p };
     });
     return saida.sort(   // por data; linhas inválidas por último
       (a, b) => (a.risco === "invalida") - (b.risco === "invalida") || (a.dataISO || "9").localeCompare(b.dataISO || "9") || a.linha - b.linha);
   }
 
-  const ROTULOS = { alto: "Risco alto", moderado: "Atenção", baixo: "Sem risco", "sem-previsao": "Sem previsão", passada: "Passada", invalida: "Corrigir" };
+  const ROTULOS = { alto: "Adiar", moderado: "Atenção", baixo: "Liberado", "sem-previsao": "Sem previsão", passada: "Passada", invalida: "Corrigir" };
 
   function contar(lista) {
     const c = { alto: 0, moderado: 0, baixo: 0, "sem-previsao": 0, passada: 0, invalida: 0 };
@@ -309,9 +331,9 @@
     const c = contar(lista);
     const faixa = $("agenda-faixa");
     const partes = [];
-    if (c.alto) partes.push(`${c.alto} com risco alto de chuva`);
+    if (c.alto) partes.push(`${c.alto} para adiar`);
     if (c.moderado) partes.push(`${c.moderado} em atenção`);
-    if (c.baixo) partes.push(`${c.baixo} sem risco`);
+    if (c.baixo) partes.push(`${c.baixo} liberadas`);
     if (c["sem-previsao"] + c.passada) partes.push(`${c["sem-previsao"] + c.passada} sem previsão`);
     if (c.invalida) partes.push(`${c.invalida} para corrigir`);
     faixa.textContent = partes.join(" · ") || "Nenhuma atividade analisada.";
@@ -348,6 +370,8 @@
     if (r) r.classList.add("oculto");
   }
 
+  const atividadesDaConta = () => (typeof estado !== "undefined" && estado.conta) ? Object.values(estado.conta.regras) : [];
+
   /* Botão "Analisar clima": lê a tabela, consulta a previsão e mostra o risco de cada atividade */
   async function analisar() {
     const st = $("agenda-analise-status");
@@ -359,7 +383,7 @@
       if (!linhas.some(l => !l.erros.length)) return aviso("Nenhuma linha válida. Corrija as datas e as atividades.", true);
       aviso("Consultando a previsão na Open-Meteo…");
       const previsao = await buscarPrevisaoDiaria();
-      resultado = analisarLinhas(linhas, previsao);
+      resultado = analisarLinhas(linhas, previsao, atividadesDaConta());
       window.Agenda.resultado = resultado;
       mostrarResultado(resultado);
       aviso("");
@@ -403,7 +427,7 @@
       + (i.responsavel ? `👤 ${escHtml(corta(i.responsavel, 60))}\n` : "")
       + escHtml(i.motivo));
     if (risco.length > MAX_MENSAGEM) blocos.push(`… e mais ${risco.length - MAX_MENSAGEM}.`);
-    return ["🌧 <b>ClimaSense: atividades com risco de chuva</b>", ...blocos].join("\n\n");
+    return ["🌦 <b>ClimaSense: atividades para adiar ou em atenção</b>", ...blocos].join("\n\n");
   }
 
   const chaveAviso = i => `${i.dataISO}|${i.atividade}|${i.risco}`;
@@ -420,7 +444,7 @@
      Devolve { enviado, qtd, motivo } e nunca lança erro. */
   async function avisarRiscos(lista, opcoes) {
     const risco = lista.filter(i => i.risco === "alto" || i.risco === "moderado");
-    if (!risco.length) return { enviado: false, qtd: 0, motivo: "Nenhuma atividade com risco de chuva." };
+    if (!risco.length) return { enviado: false, qtd: 0, motivo: "Nenhuma atividade para adiar ou em atenção." };
     if (typeof TG === "undefined" || !TG.token() || !TG.chat()) {
       return { enviado: false, qtd: 0, motivo: "Configure o token e o chat id do Telegram na aba Atividades." };
     }
@@ -439,29 +463,44 @@
     return { enviado: true, qtd: alvo.length, motivo: "" };
   }
 
-  /* Salva a agenda processada: no Firebase (conta) ou, no modo demonstração, neste navegador */
+  /* "Salvar agenda": distribui as linhas da tabela pelas atividades da conta (pelo nome) e grava
+     os dias em cada atividade (aba Regras). Atividade nova na tabela pode ser criada, sem critérios. */
   async function salvarAgenda() {
     if (typeof estado === "undefined" || !estado.conta) throw new Error("Entre na sua conta (botão Entrar) para salvar a agenda.");
-    if (!resultado.length) await analisar();
-    const lista = resultado.filter(i => i.risco !== "invalida");
-    if (!lista.length) throw new Error("Não há atividades válidas para salvar.");
-    const registro = montarRegistro(lista);
-    if (modoLocal()) localStorage.setItem(CHAVE_LOCAL, JSON.stringify(registro));
-    else await dbUsuario("PUT", "/agenda", registro);                // script.js: Vercel api/usuario -> /usuarios/{uid}/agenda
-    return Object.keys(registro.itens).length;
+    const linhas = lerTabela().filter(l => !l.erros.length);
+    if (!linhas.length) throw new Error("Não há agendamentos válidos para salvar.");
+    const regras = estado.conta.regras;
+    const mapa = new Map(Object.entries(regras).map(([id, a]) => [semAcento(a.nome), id]));
+    const novos = [];
+    linhas.forEach(l => { const k = semAcento(l.atividade); if (!mapa.has(k) && !novos.some(n => semAcento(n) === k)) novos.push(l.atividade); });
+    if (novos.length) {
+      if (!confirm(`Estas atividades ainda não existem na sua conta:\n- ${novos.join("\n- ")}\n\nCriar sem critérios? Você define as regras depois, na aba Regras.`))
+        throw new Error("Cadastre as atividades na aba Regras ou corrija os nomes na tabela.");
+      const perfil = estado.conta.perfis[0];
+      novos.forEach((nome, i) => {
+        const id = "x_" + Date.now().toString(36) + i;
+        regras[id] = { nome: nome.slice(0, 60), perfil, nova: true, dias: {}, regras: [] };
+        mapa.set(semAcento(nome), id);
+      });
+    }
+    Object.values(regras).forEach(a => { a.dias = {}; });
+    linhas.forEach(l => { regras[mapa.get(semAcento(l.atividade))].dias[l.dataISO] = (l.responsavel || "").slice(0, 60); });
+    await contaSalvarRegras();                                       // script.js: Firebase (api/usuario) ou navegador (demonstração)
+    Object.keys(estado.rascunho).forEach(id => { if (regras[id]) estado.rascunho[id].dias = JSON.parse(JSON.stringify(regras[id].dias)); else delete estado.rascunho[id]; });
+    if (typeof renderRegras === "function") renderRegras();
+    return linhas.length;
   }
 
-  /* Lê a agenda salva e devolve as linhas [data, atividade, responsável] para a tabela */
+  /* Linhas [data, atividade, responsável] com os dias agendados em todas as atividades da conta */
+  function diasDasAtividades() {
+    if (typeof estado === "undefined" || !estado.conta) return [];
+    const out = [];
+    Object.values(estado.conta.regras).forEach(a => Object.entries(a.dias || {}).forEach(([iso, resp]) => out.push([iso, a.nome, resp || ""])));
+    return out.sort((x, y) => x[0].localeCompare(y[0]) || x[1].localeCompare(y[1])).map(([iso, nome, resp]) => [isoParaBR(iso), limpar(nome), limpar(resp)]);
+  }
   async function carregarAgendaSalva() {
     if (typeof estado === "undefined" || !estado.conta) throw new Error("Entre na sua conta (botão Entrar) para carregar a agenda.");
-    let reg;
-    if (modoLocal()) { try { reg = JSON.parse(localStorage.getItem(CHAVE_LOCAL) || "null"); } catch (e) { reg = null; } }
-    else reg = await dbUsuario("GET", "/agenda");
-    if (!reg || !reg.itens) return [];
-    return Object.keys(reg.itens).sort().map(k => {
-      const i = reg.itens[k];
-      return [isoParaBR(i.dataISO), limpar(i.atividade), limpar(i.responsavel)];
-    });
+    return diasDasAtividades();
   }
 
   /* ---------- 8) interface ---------- */
@@ -548,17 +587,17 @@
       acao("Salvando…");
       try {
         const n = await salvarAgenda();
-        acao(`${n} ${n === 1 ? "atividade salva" : "atividades salvas"} às ${hhmm(Date.now())}.`);
+        acao(`${n} ${n === 1 ? "agendamento salvo" : "agendamentos salvos"} nas atividades às ${hhmm(Date.now())}.`);
       } catch (e) { acao(e.message, true); }
     });
     $("agenda-carregar").addEventListener("click", async () => {
       acao("Buscando a agenda salva…");
       try {
         const linhas = await carregarAgendaSalva();
-        if (!linhas.length) return acao("Ainda não há agenda salva nesta conta.", true);
+        if (!linhas.length) return acao("Ainda não há dias agendados nas suas atividades. Marque-os na aba Regras ou salve a tabela.", true);
         await montarPlanilha();
         carregarLinhas(linhas);
-        acao(`${linhas.length} atividades carregadas. Clique em Analisar clima para atualizar o risco.`);
+        acao(`${linhas.length} agendamentos carregados das suas atividades. Clique em Analisar clima.`);
       } catch (e) { acao(e.message, true); }
     });
     $("agenda-telegram").addEventListener("click", async () => {
@@ -571,7 +610,7 @@
         else acao(r.motivo, true);
       } catch (e) { acao(e.message, true); }
     });
-    $("agenda-criterios").textContent = `Risco alto: chance de chuva ≥ ${RISCO.altoProb} % ou ≥ ${RISCO.altoMm} mm no dia. Atenção: ≥ ${RISCO.modProb} % ou ≥ ${RISCO.modMm} mm, ou chuva no código do tempo.`;
+    $("agenda-criterios").textContent = `Atividades da sua conta usam os critérios da aba Regras (Adiar, Atenção, Liberado), com a previsão diária: chance de chuva máxima, temperatura máxima, sensação máxima, umidade média e vento máximo. Critérios da estação (chance da estação e queda de pressão) não se aplicam a dias futuros. Linhas de atividades que não estão na conta (e visitantes) só avaliam a chuva: Adiar com chance ≥ ${RISCO.altoProb} % ou ≥ ${RISCO.altoMm} mm; Atenção com ≥ ${RISCO.modProb} % ou ≥ ${RISCO.modMm} mm.`;
     $("agenda-add").addEventListener("click", async () => {
       try { (await montarPlanilha()).insertRow(); } catch (e) { status(e.message, true); }
     });
@@ -584,12 +623,17 @@
   /* Chamada quando a aba Agenda abre (ver irParaAba em script.js) */
   async function iniciarAgenda() {
     ligarEventos();
-    try { await montarPlanilha(); }
-    catch (e) { status(e.message, true); }
+    try {
+      await montarPlanilha();
+      if (typeof estado !== "undefined" && estado.conta && !lerTabela().length) {       // tabela vazia: traz os dias já agendados nas atividades
+        const linhas = diasDasAtividades();
+        if (linhas.length) { carregarLinhas(linhas); acao(`${linhas.length} agendamentos trazidos das suas atividades.`); }
+      }
+    } catch (e) { status(e.message, true); }
   }
 
   window.Agenda = { normalizarData, isoParaBR, parseCSV, matrizParaLinhas, lerArquivo, lerTabela, carregarLinhas, montarPlanilha,
-                    classificar, analisarLinhas, buscarPrevisaoDiaria, analisar, resultado,
+                    classificar, classificarPorRegras, varsDoDia, diasDasAtividades, analisarLinhas, buscarPrevisaoDiaria, analisar, resultado,
                     montarRegistro, montarMensagemRiscos, avisarRiscos, salvarAgenda, carregarAgendaSalva };
   window.iniciarAgenda = iniciarAgenda;
 

@@ -381,7 +381,7 @@
           <div>
             <span class="eyebrow">PLANEJAMENTO</span>
             <h1>Agenda</h1>
-            <p>Importe ou digite os agendamentos para cruzar com a previsão do tempo.</p>
+            <p>Os dias agendados de cada atividade (marcados na aba Regras ou importados aqui) são cruzados com a previsão e com os critérios da atividade.</p>
           </div>
         </div>
 
@@ -420,7 +420,7 @@
           <div class="agenda-topo">
             <div>
               <h2>3. Previsão para as atividades</h2>
-              <p class="agenda-ajuda">Cruza a data de cada atividade com a previsão da Open-Meteo (próximos 7 dias, para o local da estação). <span id="agenda-criterios"></span></p>
+              <p class="agenda-ajuda">Cruza a data de cada atividade com a previsão da Open-Meteo (próximos 15 dias, para o local da estação). <span id="agenda-criterios"></span></p>
             </div>
             <div class="agenda-botoes">
               <button class="primary-btn" id="agenda-analisar">Analisar clima</button>
@@ -530,6 +530,13 @@
         <label class="choice sq"><input type="checkbox" name="c-perfil" value="agricola">
           <span class="oc"><span class="oc-ic"><svg class="i" data-i="leaf" data-size="18"></svg></span><strong>Agrícola</strong><small>Pulverização, irrigação, colheita</small><i></i></span></label>
       </div>
+    </fieldset>
+
+    <fieldset id="campo-ativ" class="oculto">
+      <legend>Suas atividades (escolha pelo menos uma)</legend>
+      <p class="auth-note" style="margin:0 0 8px">Ative as recomendadas ou crie a sua. Depois você edita os critérios e marca os dias agendados na aba Regras.</p>
+      <div class="chip-list" id="c-ativ-lista"></div>
+      <div class="ativ-add"><input type="text" id="c-ativ-nome" maxlength="60" placeholder="Outra atividade (ex.: Corrida de rua)"><button type="button" class="btn-sm" id="c-ativ-add">Adicionar</button></div>
     </fieldset>
 
     <p id="c-erro"></p>

@@ -75,9 +75,10 @@ function montarIcones(raiz) {
 }
 const NIVEIS = ["Liberado", "Atenção", "Adiar"];
 
-/* Atividades e regras predefinidas, por perfil. Os limites são exemplos e devem
-   ser validados com professores e técnicos da área. Qualquer conta pode ajustar
-   os critérios e criar atividades novas (salvos na própria conta, no Firebase).
+/* Atividades RECOMENDADAS, por perfil. A conta nova começa sem atividades: a pessoa ativa
+   as recomendadas (os critérios são copiados para a conta e ficam editáveis) ou cria as suas.
+   Os limites são exemplos e devem ser validados com professores e técnicos da área.
+   Tudo é salvo na própria conta (Firebase). Visitantes veem estas recomendações só para leitura.
    Liberado = nenhum critério se aplica. Cada regra: variável, operador, limite, nível. */
 const ATIVIDADES_PADRAO = {
   educacao_fisica: {
@@ -255,7 +256,7 @@ function avaliarAtividade(ativ, vars) {
 
 /* ------------------------------ dados ------------------------------ */
 const estado = { estacao: null, localVisitante: null, leituras: [], api: null, conta: null, rascunho: {}, descartadas: 0, erro: null, periodo: "sessao", escalaTotal: false, apiErro: null,
-                 expandidas: {}, filtroRegras: "todos", buscaRegras: "" };
+                 expandidas: {}, filtroRegras: "todos", buscaRegras: "", calMes: {} };
 
 /* ---------------- estação e local ativos ----------------
    Estação: a escolhida no seletor (visitante: lembrada no navegador; conta: salva no perfil).
@@ -831,6 +832,10 @@ function renderRecomendacoes(d) {
   if (!d) { caixa.innerHTML = '<p class="empty muted-note">Aguardando leituras para avaliar as atividades.</p>'; return; }
   const itens = Object.entries(atividadesAtivas()).map(([id, a]) => ({ id, a, r: avaliarAtividade(a, d.vars) }))
     .sort((x, y) => y.r.nivel - x.r.nivel).slice(0, 3);
+  if (!itens.length) {
+    caixa.innerHTML = '<p class="empty muted-note">Você ainda não tem atividades. Ative uma na aba Regras.</p>';
+    return;
+  }
   itens.forEach(({ id, a, r }) => {
     const div = document.createElement("div"); div.className = "recommendation";
     div.innerHTML = `<span class="recommend-icon ${TOM[r.nivel]}">${icone(iconeAtividade(id, a), 20)}</span><span><strong></strong><small></small></span><b class="status ${TOM[r.nivel]}"></b>${icone("chevron", 16)}`;
@@ -1062,6 +1067,11 @@ function renderAtividades() {
     resumo.classList.add("oculto"); badge.classList.add("oculto");
     return;
   }
+  if (!Object.keys(ativ).length) {
+    caixa.innerHTML = '<p class="muted-note">Você ainda não tem atividades. Ative uma recomendada ou crie a sua na aba Regras.</p>';
+    resumo.classList.add("oculto"); badge.classList.add("oculto");
+    return;
+  }
   resumo.classList.remove("oculto");
   const cont = [0, 0, 0];
   for (const [id, a] of Object.entries(ativ)) {
@@ -1227,12 +1237,22 @@ function lerContaLocal() {
   try { return JSON.parse(localStorage.getItem("conta_local") || "null"); } catch (e) { return null; }
 }
 
+/* Dias agendados de uma atividade: { "AAAA-MM-DD": "responsável (opcional)" } */
+function normalizarDias(d) {
+  const out = {};
+  if (!d || typeof d !== "object") return out;
+  for (const [k, v] of Object.entries(d)) {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(k)) out[k] = typeof v === "string" ? v.slice(0, 60) : "";
+  }
+  return out;
+}
 function normalizarRegras(r) {
   const out = {};
   for (const [id, a] of Object.entries(r || {})) {
     if (!a) continue;
     out[id] = {
       nome: String(a.nome || id), perfil: PERFIS[a.perfil] ? a.perfil : "escola", nova: !!a.nova,
+      dias: normalizarDias(a.dias),
       regras: lista(a.regras)
         .map(x => ({ v: x.v, op: x.op, lim: Number(x.lim), nivel: x.nivel === "adiar" ? "adiar" : "atencao" }))
         .filter(x => VARIAVEIS[x.v] && OPERADORES.some(o => o[0] === x.op) && Number.isFinite(x.lim))
@@ -1256,14 +1276,24 @@ function normalizarConta(c) {
   };
 }
 
-/* Atividades que valem para quem está usando: padrão do(s) perfil(is) + atividades e critérios da própria conta. */
+/* Atividades que valem para quem está usando: as da própria conta (a conta começa vazia).
+   Visitante, sem conta, vê as recomendadas só para leitura. */
 function atividadesAtivas() {
   const c = estado.conta;
-  const perfis = c ? c.perfis : Object.keys(PERFIS);
+  if (c) return c.regras;
   const out = {};
-  for (const [id, a] of Object.entries(ATIVIDADES_PADRAO)) if (perfis.includes(a.perfil)) out[id] = a;
-  if (c) for (const [id, a] of Object.entries(c.regras)) if (perfis.includes(a.perfil)) out[id] = a;
+  for (const [id, a] of Object.entries(ATIVIDADES_PADRAO)) out[id] = a;
   return out;
+}
+/* Recomendadas dos perfis da conta que ainda não foram ativadas */
+function recomendadasDisponiveis() {
+  const c = estado.conta;
+  if (!c) return [];
+  return Object.entries(ATIVIDADES_PADRAO).filter(([id, a]) => c.perfis.includes(a.perfil) && !(id in c.regras));
+}
+function copiarRecomendada(id) {
+  const a = ATIVIDADES_PADRAO[id];
+  return { nome: a.nome, perfil: a.perfil, nova: false, dias: {}, regras: clonar(a.regras) };
 }
 
 /* ----------------------------- autenticação ----------------------------- */
@@ -1324,14 +1354,30 @@ async function dbUsuario(metodo, caminho, corpo) {
   return r.json();
 }
 
-async function contaCriar({ nome, email, senha, papel, perfis, estacao, local }) {
+/* Atividades da conta nova: { ids: [recomendadas escolhidas], custom: [nomes criados] } */
+function regrasIniciais(atividades, perfis) {
+  const out = {};
+  const at = atividades || {};
+  (at.ids || []).forEach(id => {
+    const a = ATIVIDADES_PADRAO[id];
+    if (a && perfis.includes(a.perfil)) out[id] = copiarRecomendada(id);
+  });
+  (at.custom || []).forEach((nome, i) => {
+    nome = String(nome || "").trim().slice(0, 60);
+    if (nome) out["x_" + Date.now().toString(36) + i] = { nome, perfil: perfis[0], nova: true, dias: {}, regras: [] };
+  });
+  return out;
+}
+async function contaCriar({ nome, email, senha, papel, perfis, estacao, local, atividades }) {
   if (!String(nome || "").trim()) throw new Error("Informe seu nome.");
   if (!perfis || !perfis.length) throw new Error("Escolha pelo menos um perfil.");
-  papel = papel === "especialista" ? "especialista" : "usuario";
+  papel = "usuario";
+  const regras = regrasIniciais(atividades, perfis);
+  if (!Object.keys(regras).length) throw new Error("Escolha ou crie pelo menos uma atividade.");
   estacao = estacaoValida(estacao) ? estacao : CONFIG.estacao;
   local = normalizarLocal(local);   // só nome, coordenadas e altitude; CEP e rua não são guardados (RNF16)
   if (modoLocal()) {
-    const c = { uid: "local", email: "", nome: nome.trim(), papel, perfis, regras: {}, estacao, local };
+    const c = { uid: "local", email: "", nome: nome.trim(), papel, perfis, regras, estacao, local };
     localStorage.setItem("conta_local", JSON.stringify(c));
     localStorage.setItem("conta_local_ativa", "1");
     estado.conta = normalizarConta(c);
@@ -1341,7 +1387,7 @@ async function contaCriar({ nome, email, senha, papel, perfis, estacao, local })
   if (!String(email || "").trim()) throw new Error("Informe o e-mail.");
   const j = await idCall("signUp", { email, password: senha });
   const s = gravarSessaoDe(j, email);
-  const dados = { nome: nome.trim(), email, papel, perfis, estacao, criadoEm: Date.now() };
+  const dados = { nome: nome.trim(), email, papel, perfis, estacao, regras, criadoEm: Date.now() };
   if (local) dados.local = local;
   try { await dbUsuario("PUT", "", dados); }
   catch (e) { throw new Error("Conta criada, mas não foi possível salvar o perfil: " + e.message); }
@@ -1413,15 +1459,33 @@ async function salvarAtividade(id, a) {
   exigirConta();
   const erro = validarAtividade(a);
   if (erro) throw new Error(erro);
+  const salvo = estado.conta.regras[id];
   estado.conta.regras[id] = {
     nome: a.nome.trim(), perfil: a.perfil, nova: !(id in ATIVIDADES_PADRAO),
+    dias: normalizarDias(a.dias || (salvo && salvo.dias)),
     regras: a.regras.map(r => ({ v: r.v, op: r.op, lim: Number(r.lim), nivel: r.nivel === "adiar" ? "adiar" : "atencao" }))
   };
   await contaSalvarRegras();
 }
-async function restaurarAtividade(id) {     // volta ao padrão (ou exclui, se for atividade nova)
+async function removerAtividade(id) {
   exigirConta();
   delete estado.conta.regras[id];
+  await contaSalvarRegras();
+}
+async function restaurarRecomendada(id) {     // volta os critérios ao recomendado (mantém os dias agendados)
+  exigirConta();
+  if (!(id in ATIVIDADES_PADRAO)) throw new Error("Só atividades recomendadas têm critérios para restaurar.");
+  const atual = estado.conta.regras[id];
+  const nova = copiarRecomendada(id);
+  if (atual) { nova.dias = atual.dias || {}; nova.nome = ATIVIDADES_PADRAO[id].nome; }
+  estado.conta.regras[id] = nova;
+  await contaSalvarRegras();
+}
+async function adicionarRecomendada(id) {
+  exigirConta();
+  if (!(id in ATIVIDADES_PADRAO)) throw new Error("Atividade recomendada não encontrada.");
+  if (id in estado.conta.regras) return;
+  estado.conta.regras[id] = copiarRecomendada(id);
   await contaSalvarRegras();
 }
 async function criarAtividade(nome, perfil) {
@@ -1430,17 +1494,25 @@ async function criarAtividade(nome, perfil) {
   const c = estado.conta;
   if (!c.perfis.includes(perfil)) throw new Error("Escolha um dos seus perfis.");
   const id = "x_" + Date.now().toString(36);
-  c.regras[id] = { nome: nome.trim(), perfil, nova: true, regras: [] };
+  c.regras[id] = { nome: nome.trim(), perfil, nova: true, dias: {}, regras: [] };
   await contaSalvarRegras();
   return id;
+}
+/* marca ou desmarca um dia agendado da atividade e salva na hora */
+async function alternarDia(id, a, iso) {
+  exigirConta();
+  const dias = a.dias || (a.dias = {});
+  if (iso in dias) delete dias[iso]; else dias[iso] = "";
+  const salvo = estado.conta.regras[id];
+  if (salvo) { salvo.dias = clonar(dias); await contaSalvarRegras(); }
 }
 
 /* ------------------------------ interface da conta ------------------------------ */
 function textoFaixaConta() {
   const c = estado.conta;
-  if (!c) return "Você está como visitante e vê as regras padrão dos dois perfis. Crie uma conta para escolher o seu perfil.";
+  if (!c) return "Você está como visitante e vê as atividades recomendadas só para leitura. Crie uma conta para montar as suas atividades, editar os critérios e agendar os dias.";
   const perfis = c.perfis.map(p => PERFIS[p]).join(" e ");
-  return `Perfil: ${perfis}. Você pode ajustar os critérios e criar atividades novas; elas valem só para a sua conta.`;
+  return `Perfil: ${perfis}. Ative uma recomendada ou crie a sua, ajuste os critérios e marque os dias agendados; a Agenda usa essas regras.`;
 }
 function renderConta() {
   const c = estado.conta;
@@ -1520,13 +1592,15 @@ function secaoRegras(a, nivel, titulo, edita) {
 }
 function cartaoRegras(id, base, edita) {
   const a = edita ? rascunhoDe(id) : base;
-  const personalizada = !!(estado.conta && estado.conta.regras[id]);
-  const selo = !(id in ATIVIDADES_PADRAO) ? "criada por você" : (personalizada ? "personalizada" : "padrão");
+  const padrao = ATIVIDADES_PADRAO[id];
+  const salva = estado.conta && estado.conta.regras[id];
+  const editada = !!(padrao && salva && JSON.stringify(salva.regras) !== JSON.stringify(padrao.regras));
+  const selo = !padrao ? "criada por você" : (editada ? "recomendada · editada" : "recomendada");
   const icone_ = el("span", { className: "rule-icon safe", innerHTML: icone(iconeAtividade(id, a), 20) });
   const titulo = el("div", {}, [el("small", { textContent: PERFIS[a.perfil] || a.perfil }), el("h3", { textContent: a.nome })]);
   const topo = el("div", { className: "rule-editor-head" }, [icone_, titulo, el("span", { className: "tag", textContent: selo })]);
   const cartao = el("div", { className: "rule-editor" }, [topo]);
-  if (edita && !(id in ATIVIDADES_PADRAO)) {
+  if (edita) {
     const nome = el("input", { type: "text", value: a.nome, className: "rule-name", placeholder: "Nome da atividade" });
     nome.addEventListener("input", () => { a.nome = nome.value; });
     cartao.appendChild(nome);
@@ -1534,6 +1608,7 @@ function cartaoRegras(id, base, edita) {
   cartao.appendChild(secaoRegras(a, "adiar", "Adiar quando qualquer um destes critérios ocorrer", edita));
   cartao.appendChild(secaoRegras(a, "atencao", "Atenção quando qualquer um destes critérios ocorrer", edita));
   cartao.appendChild(el("p", { className: "rule-free", textContent: "Liberado: quando nenhum critério acima se aplica." }));
+  if (edita) cartao.appendChild(seletorDias(id, a));
   if (edita) {
     const acoes = el("div", { className: "rule-actions" });
     const salvar = el("button", { type: "button", className: "btn-sm solid", textContent: "Salvar regras" });
@@ -1550,23 +1625,97 @@ function cartaoRegras(id, base, edita) {
     const descartar = el("button", { type: "button", className: "btn-sm", textContent: "Descartar alterações" });
     descartar.addEventListener("click", () => { delete estado.rascunho[id]; statusRegras("Alterações descartadas.", false); renderRegras(); });
     acoes.appendChild(descartar);
-    if (personalizada) {
-      const nova = !(id in ATIVIDADES_PADRAO);
-      const rest = el("button", { type: "button", className: "btn-sm", textContent: nova ? "Excluir atividade" : "Restaurar padrão" });
-      rest.addEventListener("click", async () => {
+    if (padrao && editada) {
+      const volta = el("button", { type: "button", className: "btn-sm", textContent: "Voltar ao recomendado" });
+      volta.addEventListener("click", async () => {
         try {
-          await restaurarAtividade(id);
+          await restaurarRecomendada(id);
           delete estado.rascunho[id];
-          statusRegras(nova ? "Atividade excluída." : "Critérios padrão restaurados.", false);
-          avisar(nova ? "Atividade excluída." : "Critérios padrão restaurados.");
+          statusRegras("Critérios recomendados restaurados.", false);
+          avisar("Critérios recomendados restaurados.");
           renderRegras(); renderTudo();
         } catch (e) { statusRegras("Não foi possível concluir: " + e.message, true); }
       });
-      acoes.appendChild(rest);
+      acoes.appendChild(volta);
     }
+    const rem = el("button", { type: "button", className: "btn-sm", textContent: "Remover atividade" });
+    rem.addEventListener("click", async () => {
+      if (!confirm(`Remover "${a.nome}" e os dias agendados dela?`)) return;
+      try {
+        await removerAtividade(id);
+        delete estado.rascunho[id];
+        statusRegras("Atividade removida.", false);
+        avisar("Atividade removida.");
+        renderRegras(); renderTudo();
+      } catch (e) { statusRegras("Não foi possível concluir: " + e.message, true); }
+    });
+    acoes.appendChild(rem);
     cartao.appendChild(acoes);
   }
   return cartao;
+}
+/* calendário do mês para marcar os dias agendados da atividade (salva ao clicar) */
+const DIAS_SEMANA = ["D", "S", "T", "Q", "Q", "S", "S"];
+function seletorDias(id, a) {
+  const hoje = new Date();
+  const isoHoje = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
+  const cal = estado.calMes[id] || (estado.calMes[id] = { a: hoje.getFullYear(), m: hoje.getMonth() });
+  const raiz = el("div", { className: "dias-cal" });
+  function desenhar() {
+    raiz.innerHTML = "";
+    const dias = a.dias || (a.dias = {});
+    const tituloMes = new Date(cal.a, cal.m, 1).toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+    const titulo = tituloMes.charAt(0).toUpperCase() + tituloMes.slice(1);
+    const prefixo = `${cal.a}-${String(cal.m + 1).padStart(2, "0")}-`;
+    const noMes = Object.keys(dias).filter(k => k.startsWith(prefixo)).length;
+    const mover = n => { const d = new Date(cal.a, cal.m + n, 1); cal.a = d.getFullYear(); cal.m = d.getMonth(); desenhar(); };
+    const ant = el("button", { type: "button", className: "btn-sm", textContent: "‹", title: "Mês anterior" });
+    const prox = el("button", { type: "button", className: "btn-sm", textContent: "›", title: "Próximo mês" });
+    ant.addEventListener("click", () => mover(-1)); prox.addEventListener("click", () => mover(1));
+    raiz.appendChild(el("div", { className: "dias-cab" }, [
+      el("strong", { textContent: "Dias agendados" }), ant,
+      el("span", { className: "dias-mes", textContent: titulo }), prox,
+      el("small", { textContent: noMes ? `${noMes} ${noMes === 1 ? "dia" : "dias"} neste mês` : "Clique nos dias para marcar" })]));
+    const grade = el("div", { className: "dias-grade" });
+    DIAS_SEMANA.forEach(n => grade.appendChild(el("span", { className: "dias-sem", textContent: n })));
+    const primeiro = new Date(cal.a, cal.m, 1).getDay(), total = new Date(cal.a, cal.m + 1, 0).getDate();
+    for (let i = 0; i < primeiro; i++) grade.appendChild(el("span"));
+    for (let d = 1; d <= total; d++) {
+      const iso = prefixo + String(d).padStart(2, "0");
+      const b = el("button", { type: "button", textContent: String(d),
+        className: "dia" + (iso in dias ? " on" : "") + (iso === isoHoje ? " hoje" : ""), title: iso in dias ? "Desmarcar" : "Agendar" });
+      b.setAttribute("aria-pressed", iso in dias ? "true" : "false");
+      b.addEventListener("click", async () => {
+        try { await alternarDia(id, a, iso); desenhar(); }
+        catch (e) { statusRegras("Não foi possível salvar o dia: " + e.message, true); avisar("Não foi possível salvar o dia: " + e.message, true); }
+      });
+      grade.appendChild(b);
+    }
+    raiz.appendChild(grade);
+  }
+  desenhar();
+  return raiz;
+}
+function blocoRecomendadas() {
+  const disp = recomendadasDisponiveis();
+  if (!disp.length) return null;
+  const box = el("div", { className: "new-activity recomendadas" }, [
+    el("h3", { textContent: "Atividades recomendadas" }),
+    el("p", { className: "muted-note", textContent: "Ative uma para trazer os critérios sugeridos. Depois você pode editar tudo." })]);
+  disp.forEach(([id, a]) => {
+    const b = el("button", { type: "button", className: "btn-sm solid", textContent: "Ativar" });
+    b.addEventListener("click", async () => {
+      try {
+        await adicionarRecomendada(id);
+        statusRegras(`"${a.nome}" ativada. Ajuste os critérios se quiser.`, false);
+        avisar(`"${a.nome}" ativada.`);
+        renderRegras(); renderTudo();
+      } catch (e) { statusRegras(e.message, true); avisar(e.message, true); }
+    });
+    box.appendChild(el("div", { className: "rec-linha" }, [
+      el("span", {}, [el("strong", { textContent: a.nome }), el("small", { textContent: `${PERFIS[a.perfil]} · ${a.regras.length} critérios` })]), b]));
+  });
+  return box;
 }
 function formNovaAtividade() {
   const sel = el("select");
@@ -1576,7 +1725,7 @@ function formNovaAtividade() {
   b.addEventListener("click", async () => {
     try {
       await criarAtividade(nome.value, sel.value);
-      statusRegras("Atividade criada. Defina os critérios e salve.", false);
+      statusRegras("Atividade criada. Defina os critérios, marque os dias e salve.", false);
       avisar(`Atividade "${nome.value.trim()}" criada. Defina os critérios e salve.`);
       renderRegras(); renderTudo();
     } catch (e) { statusRegras(e.message, true); avisar(e.message, true); }
@@ -1593,8 +1742,14 @@ function renderRegras() {
   const itens = Object.entries(atividadesAtivas()).filter(([, a]) =>
     (estado.filtroRegras === "todos" || a.perfil === estado.filtroRegras) && (!busca || a.nome.toLowerCase().includes(busca)));
   itens.forEach(([id, a]) => raiz.appendChild(cartaoRegras(id, a, edita)));
-  if (!itens.length) raiz.appendChild(el("p", { className: "muted-note", textContent: "Nenhuma atividade encontrada para esse filtro." }));
-  if (edita) raiz.appendChild(formNovaAtividade());
+  if (!itens.length) raiz.appendChild(el("p", { className: "muted-note", textContent: edita && !Object.keys(atividadesAtivas()).length
+    ? "Você ainda não tem atividades. Ative uma recomendada ou crie a sua para começar."
+    : "Nenhuma atividade encontrada para esse filtro." }));
+  if (edita) {
+    const rec = blocoRecomendadas();
+    if (rec) raiz.appendChild(rec);
+    raiz.appendChild(formNovaAtividade());
+  }
 }
 
 /* ------------------------------ CEP, local e estação ------------------------------ */
@@ -1695,7 +1850,7 @@ function definirModoModal(modo) {
   const local = modoLocal();
   $("tab-entrar").classList.toggle("active", modo === "entrar");
   $("tab-criar").classList.toggle("active", modo === "criar");
-  ["campo-nome", "campo-perfis", "campo-local"].forEach(id => $(id).classList.toggle("oculto", modo !== "criar"));
+  ["campo-nome", "campo-perfis", "campo-ativ", "campo-local"].forEach(id => $(id).classList.toggle("oculto", modo !== "criar"));
   ["campo-email", "campo-senha"].forEach(id => $(id).classList.toggle("oculto", local));
   texto("c-enviar-txt", modo === "criar" ? "Criar minha conta" : (local ? "Continuar" : "Entrar na minha conta"));
   texto("auth-titulo", modo === "criar" ? "Crie sua conta" : "Que bom ter você de volta");
@@ -1708,8 +1863,37 @@ function definirModoModal(modo) {
     : "");
   $("aviso-modo").classList.toggle("oculto", !$("aviso-modo").textContent);
   $("c-erro").textContent = "";
+  if (modo === "criar") renderAtivCadastro();
 }
 function abrirModal(modo) { definirModoModal(modo || "entrar"); $("dlg-conta").showModal(); }
+/* escolha das atividades iniciais no cadastro (pelo menos uma) */
+const cadastroAtiv = { sel: new Set(), custom: [] };
+function renderAtivCadastro() {
+  const lista = $("c-ativ-lista");
+  if (!lista) return;
+  const perfis = Array.from(document.querySelectorAll('input[name="c-perfil"]:checked')).map(x => x.value);
+  [...cadastroAtiv.sel].forEach(id => { if (!ATIVIDADES_PADRAO[id] || !perfis.includes(ATIVIDADES_PADRAO[id].perfil)) cadastroAtiv.sel.delete(id); });
+  lista.innerHTML = "";
+  Object.entries(ATIVIDADES_PADRAO).filter(([, a]) => perfis.includes(a.perfil)).forEach(([id, a]) => {
+    const cx = el("input", { type: "checkbox", checked: cadastroAtiv.sel.has(id) });
+    cx.addEventListener("change", () => { if (cx.checked) cadastroAtiv.sel.add(id); else cadastroAtiv.sel.delete(id); });
+    lista.appendChild(el("label", { className: "chip" }, [cx, el("span", { textContent: a.nome })]));
+  });
+  cadastroAtiv.custom.forEach((nome, i) => {
+    const x = el("button", { type: "button", className: "chip-x", textContent: "×", title: "Remover" });
+    x.addEventListener("click", () => { cadastroAtiv.custom.splice(i, 1); renderAtivCadastro(); });
+    lista.appendChild(el("span", { className: "chip on" }, [el("span", { textContent: nome }), x]));
+  });
+  if (!lista.children.length) lista.appendChild(el("p", { className: "auth-note", textContent: "Escolha um perfil acima ou crie a sua atividade." }));
+}
+function adicionarAtivCadastro() {
+  const campo = $("c-ativ-nome");
+  const nome = campo.value.trim().slice(0, 60);
+  if (!nome) return;
+  if (!cadastroAtiv.custom.includes(nome)) cadastroAtiv.custom.push(nome);
+  campo.value = "";
+  renderAtivCadastro();
+}
 async function enviarModal() {
   const erro = $("c-erro");
   erro.textContent = "";
@@ -1718,7 +1902,11 @@ async function enviarModal() {
     if (modoModal === "criar") {
       if ($("c-cep").value.trim() && !localCadastro) await acharCepCadastro();   // CEP digitado e ainda não buscado
       if ($("c-cep").value.trim() && !localCadastro) throw new Error("Corrija o CEP ou deixe o campo em branco para usar o local padrão.");
+      const perfisEsc = Array.from(document.querySelectorAll('input[name="c-perfil"]:checked')).map(x => x.value);
+      const atividades = { ids: [...cadastroAtiv.sel].filter(id => ATIVIDADES_PADRAO[id] && perfisEsc.includes(ATIVIDADES_PADRAO[id].perfil)), custom: cadastroAtiv.custom.slice() };
+      if (!atividades.ids.length && !atividades.custom.length) throw new Error("Escolha ou crie pelo menos uma atividade.");
       await contaCriar({
+        atividades,
         estacao: $("c-estacao").value, local: localCadastro,
         nome: $("c-nome").value, email: $("c-email").value.trim(), senha: $("c-senha").value,
         perfis: Array.from(document.querySelectorAll('input[name="c-perfil"]:checked')).map(x => x.value)
@@ -1727,6 +1915,7 @@ async function enviarModal() {
     else await contaEntrar($("c-email").value.trim(), $("c-senha").value);
     $("dlg-conta").close();
     estado.rascunho = {};
+    cadastroAtiv.sel.clear(); cadastroAtiv.custom.length = 0;
     renderTudo(); renderRegras();
   } catch (e) { erro.textContent = e.message; }
   finally { $("c-enviar").disabled = false; }
@@ -1741,6 +1930,9 @@ function ligarConta() {
   $("c-cancelar").addEventListener("click", () => dlg.close());
   $("c-fechar").addEventListener("click", () => dlg.close());
   dlg.addEventListener("mousedown", e => { if (e.target === dlg) dlg.close(); });
+  document.querySelectorAll('input[name="c-perfil"]').forEach(x => x.addEventListener("change", renderAtivCadastro));
+  $("c-ativ-add").addEventListener("click", adicionarAtivCadastro);
+  $("c-ativ-nome").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); adicionarAtivCadastro(); } });
   $("c-ver").addEventListener("click", () => { const i = $("c-senha"); i.type = i.type === "password" ? "text" : "password"; });
   $("c-cep-buscar").addEventListener("click", acharCepCadastro);
   $("c-cep").addEventListener("input", () => { localCadastro = null; texto("c-cep-res", ""); });

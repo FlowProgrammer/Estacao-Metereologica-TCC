@@ -1982,3 +1982,26 @@ dialog.auth-dialog[open] { animation: fadeIn 0.2s; }
 .agenda-risco.sem-previsao, .agenda-risco.passada, .agenda-risco.invalida { color: #6d7a76; background: #eef1f0; }
 .agenda-auto { display: flex; align-items: center; gap: 8px; margin-top: 14px; font-size: 12px; color: #55645f; cursor: pointer; }
 .agenda-auto input { accent-color: #3f8a76; }
+/* atividades: calendário de dias agendados, recomendadas e escolha no cadastro */
+.dias-cal { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.dias-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; }
+.dias-cab strong { font-size: 12px; margin-right: auto; }
+.dias-cab small { width: 100%; color: var(--muted); font-size: 11px; }
+.dias-mes { min-width: 120px; text-align: center; font-weight: 700; }
+.dias-grade { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; max-width: 320px; }
+.dias-sem { text-align: center; font-size: 10px; font-weight: 700; color: var(--muted); padding-bottom: 2px; }
+.dias-grade .dia { height: 34px; border-radius: 9px; border: 1px solid var(--line); background: #fff; font-size: 12px; font-weight: 600; text-align: center; color: #3b4a47; }
+.dias-grade .dia:hover { border-color: #b7cbc5; }
+.dias-grade .dia.hoje { border-color: var(--green); }
+.dias-grade .dia.on { background: var(--green); border-color: var(--green); color: #fff; }
+.recomendadas .rec-linha { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
+.recomendadas .rec-linha span { display: flex; flex-direction: column; gap: 2px; }
+.recomendadas .rec-linha strong { font-size: 13px; }
+.recomendadas .rec-linha small { font-size: 11px; color: var(--muted); }
+.chip-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font-size: 12px; font-weight: 600; cursor: pointer; }
+.chip input { accent-color: var(--green); margin: 0; }
+.chip:has(input:checked), .chip.on { border-color: var(--green); background: var(--green-soft); color: var(--green-dark); }
+.chip-x { font-size: 15px; line-height: 1; padding: 0 2px; color: var(--green-dark); }
+.ativ-add { display: flex; gap: 8px; margin-top: 10px; }
+.ativ-add input { flex: 1; min-width: 0; min-height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; font-size: 13px; }
