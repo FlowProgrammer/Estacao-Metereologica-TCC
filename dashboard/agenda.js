@@ -446,7 +446,7 @@
     const risco = lista.filter(i => i.risco === "alto" || i.risco === "moderado");
     if (!risco.length) return { enviado: false, qtd: 0, motivo: "Nenhuma atividade para adiar ou em atenção." };
     if (typeof TG === "undefined" || !TG.token() || !TG.chat()) {
-      return { enviado: false, qtd: 0, motivo: "Configure o token e o chat id do Telegram na aba Atividades." };
+      return { enviado: false, qtd: 0, motivo: "O envio pelo Telegram ainda não foi configurado (aba Regras, no fim da página, para o responsável técnico)." };
     }
     let alvo = risco;
     if (opcoes && opcoes.apenasNovos) {

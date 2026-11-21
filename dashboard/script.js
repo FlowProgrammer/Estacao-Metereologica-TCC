@@ -256,7 +256,7 @@ function avaliarAtividade(ativ, vars) {
 
 /* ------------------------------ dados ------------------------------ */
 const estado = { estacao: null, localVisitante: null, leituras: [], api: null, conta: null, rascunho: {}, descartadas: 0, erro: null, periodo: "sessao", escalaTotal: false, apiErro: null,
-                 expandidas: {}, filtroRegras: "todos", buscaRegras: "", calMes: {} };
+                 expandidas: {}, filtroRegras: "todos", buscaRegras: "", calMes: {}, vistoNiveis: {}, niveisAtuais: {}, alertasSig: "", alertasVistos: "" };
 
 /* ---------------- estação e local ativos ----------------
    Estação: a escolhida no seletor (visitante: lembrada no navegador; conta: salva no perfil).
@@ -902,19 +902,45 @@ function renderApiGrafico() {
   texto("api-nota", nota); texto("api-nota2", nota);
 }
 
+/* Faz um ou mais elementos "brilharem" por alguns segundos (algo novo foi notificado ali) */
+function brilhar(elementos) {
+  const lista = Array.from(elementos || []).filter(Boolean);
+  lista.forEach(e => { e.classList.remove("brilho"); void e.offsetWidth; e.classList.add("brilho"); });
+  if (lista.length) setTimeout(() => lista.forEach(e => e.classList.remove("brilho")), 4200);
+}
+/* Atividades cujo nível (atenção ou adiar) é novo desde a última vez que a pessoa abriu a aba Atividades */
+function atividadesNovas() {
+  return Object.entries(estado.niveisAtuais).filter(([id, n]) => n > 0 && estado.vistoNiveis[id] !== n).map(([id]) => id);
+}
+function atualizarSelosNovidade() {
+  const badge = $("nav-ativ");
+  if (badge) {
+    const n = document.getElementById("atividades").classList.contains("ativa") ? 0 : atividadesNovas().length;
+    badge.textContent = String(n); badge.classList.toggle("oculto", n === 0);
+  }
+  const ponto = $("sino-ponto");
+  if (ponto) ponto.classList.toggle("off", !estado.alertasSig || estado.alertasSig === estado.alertasVistos);
+}
 function renderAlertas(d) {
   const ul = $("alertas"); ul.innerHTML = "";
   const TONS = { perigo: ["danger", "alert"], atencao: ["warning", "clock"], ok: ["safe", "check"], neutro: ["neutral", "cloud"] };
   let pendentes = 0;
-  const add = (cls, titulo, det) => {
+  const sig = [];
+  const add = (cls, titulo, det, alvo) => {
     const [tom, ic] = TONS[cls] || TONS.neutro;
-    if (cls === "perigo" || cls === "atencao") pendentes++;
+    if (cls === "perigo" || cls === "atencao") { pendentes++; sig.push(titulo + "|" + det); }
     const li = document.createElement("li"); li.className = "alert-item";
     li.innerHTML = `<span class="recommend-icon ${tom}">${icone(ic, 19)}</span><span><strong></strong><span class="txt"></span></span>`;
     li.querySelector("strong").textContent = titulo; li.querySelector(".txt").textContent = det;
+    if (cls === "perigo" || cls === "atencao") li.dataset.pendente = "1";
+    if (alvo) {       // clicar leva à aba do assunto e faz o item brilhar lá
+      li.classList.add("clicavel"); li.dataset.alvo = alvo;
+      li.title = "Ver na aba Atividades";
+      li.addEventListener("click", () => { irParaAba("atividades"); setTimeout(() => brilhar(document.querySelectorAll(`#cards [data-id="${alvo}"]`)), 80); });
+    }
     ul.appendChild(li);
   };
-  const fim = () => { $("sino-ponto").classList.toggle("off", pendentes === 0); };
+  const fim = () => { estado.alertasSig = sig.join("##"); atualizarSelosNovidade(); };
   if (estado.descartadas) add("atencao", "Leituras ignoradas",
     `${estado.descartadas} leitura(s) com valor impossível (pressão ao nível do mar fora de 870 a 1090 hPa, temperatura fora de −20 a 60 °C ou umidade fora de 0 a 100 %) não entram nos gráficos nem nos cálculos.`);
   if (!d) { add("neutro", "Sem leituras", "O dashboard mostra os alertas quando houver dados."); fim(); return; }
@@ -930,9 +956,9 @@ function renderAlertas(d) {
   if (estado.api && d.est.cat === "Baixa" && estado.api.chuva3h >= 60)
     add("atencao", "Estação e API divergem", `A API prevê ${fmt(estado.api.chuva3h, 0)} % de chuva, mas a estação indica chance baixa.`);
   const ativ = atividadesAtivas();
-  for (const a of Object.values(ativ)) {
+  for (const [id, a] of Object.entries(ativ)) {
     const r = avaliarAtividade(a, d.vars);
-    if (r.nivel === 2) add("perigo", `${a.nome}: adiar`, r.motivos.filter(m => m.n === 2).map(m => m.texto).join("; "));
+    if (r.nivel === 2) add("perigo", `${a.nome}: adiar`, r.motivos.filter(m => m.n === 2).map(m => m.texto).join("; "), id);
   }
   if (!ul.children.length) add("ok", "Tudo tranquilo", "Nenhum alerta ativo no momento.");
   fim();
@@ -1060,26 +1086,26 @@ function renderAtividades() {
   const d = derivados();
   const caixa = $("cards"); caixa.innerHTML = "";
   const resumo = $("ativ-resumo");
-  const badge = $("nav-ativ");
   const ativ = atividadesAtivas();
   if (!d) {
     caixa.innerHTML = '<p class="muted-note">Aguardando leituras para avaliar as atividades.</p>';
-    resumo.classList.add("oculto"); badge.classList.add("oculto");
+    resumo.classList.add("oculto"); estado.niveisAtuais = {}; atualizarSelosNovidade();
     return;
   }
   if (!Object.keys(ativ).length) {
     caixa.innerHTML = '<p class="muted-note">Você ainda não tem atividades. Ative uma recomendada ou crie a sua na aba Regras.</p>';
-    resumo.classList.add("oculto"); badge.classList.add("oculto");
+    resumo.classList.add("oculto"); estado.niveisAtuais = {}; atualizarSelosNovidade();
     return;
   }
   resumo.classList.remove("oculto");
-  const cont = [0, 0, 0];
+  const cont = [0, 0, 0], niveisAtuais = {};
   for (const [id, a] of Object.entries(ativ)) {
     const r = avaliarAtividade(a, d.vars);
-    cont[r.nivel]++;
+    cont[r.nivel]++; niveisAtuais[id] = r.nivel;
     const tom = TOM[r.nivel], aberto = !!estado.expandidas[id];
     const card = document.createElement("article");
     card.className = `rule-card ${tom}${aberto ? " aberto" : ""}`;
+    card.dataset.id = id;
     card.innerHTML = `<div class="rule-icon ${tom}">${icone(iconeAtividade(id, a), 22)}</div>
       <div class="rule-copy"><small></small><h3></h3><p></p><ul class="oculto"></ul></div>
       <b class="status ${tom}"></b>
@@ -1110,8 +1136,9 @@ function renderAtividades() {
     });
     caixa.appendChild(card);
   }
-  const pend = cont[1] + cont[2];
-  badge.textContent = String(pend); badge.classList.toggle("oculto", pend === 0);
+  estado.niveisAtuais = niveisAtuais;
+  if (document.getElementById("atividades").classList.contains("ativa")) estado.vistoNiveis = { ...niveisAtuais };   // já está olhando: nada novo
+  atualizarSelosNovidade();
   const item = (tom, ic, forte, sub) => `<div><span class="summary-icon ${tom}">${icone(ic, 20)}</span><span><strong>${forte}</strong><small>${sub}</small></span></div>`;
   resumo.innerHTML = item("safe", "check", `${cont[0]} ${cont[0] === 1 ? "liberada" : "liberadas"}`, "Atividades seguras")
     + item("warning", "clock", `${cont[1]} em atenção`, "Requer monitoramento")
@@ -1155,12 +1182,14 @@ const TG = {
   auto: () => localStorage.getItem("tg_auto") === "1"
 };
 function statusTg(msg, erro) {
-  const e = $("tg-status");
-  if (e) { e.textContent = msg; e.className = "mudo" + (erro ? " erro" : ""); }
+  ["tg-status", "tg-status2"].forEach(id => {
+    const e = $(id);
+    if (e) { e.textContent = msg; e.className = "mudo" + (erro ? " erro" : ""); }
+  });
 }
 async function enviarTelegram(texto) {
   if (!TG.token() || !TG.chat()) {
-    statusTg("Configure o token e o chat id do Telegram primeiro.", true);
+    statusTg("O envio pelo Telegram ainda não foi configurado. Peça ao responsável técnico (aba Regras, no fim da página).", true);
     return false;
   }
   try {
@@ -1422,7 +1451,7 @@ function contaContinuarLocal() {
 }
 function contaSair() {
   if (modoLocal()) localStorage.setItem("conta_local_ativa", "0"); else SESSAO.limpar();
-  estado.conta = null; estado.rascunho = {}; estado.calMes = {};
+  estado.conta = null; estado.rascunho = {}; estado.calMes = {}; estado.vistoNiveis = {}; estado.alertasVistos = "";
 }
 /* Ao sair: apaga o que ficou guardado neste navegador (sessão, estação escolhida, token e chat do
    Telegram, avisos já enviados) e limpa a tela (campos do Telegram, tabela da Agenda). Os dados da
@@ -1751,6 +1780,7 @@ function renderRegras() {
   raiz.innerHTML = "";
   texto("faixa-regras", textoFaixaConta());
   const edita = !!estado.conta;
+  const av = $("tg-avancado"); if (av) av.classList.toggle("oculto", !edita);
   const busca = estado.buscaRegras.trim().toLowerCase();
   const itens = Object.entries(atividadesAtivas()).filter(([, a]) =>
     (estado.filtroRegras === "todos" || a.perfil === estado.filtroRegras) && (!busca || a.nome.toLowerCase().includes(busca)));
@@ -1981,6 +2011,12 @@ function irParaAba(id) {
   document.querySelectorAll(".aba").forEach(x => x.classList.toggle("ativa", x.id === id));
   texto("crumb", b.dataset.titulo);
   if (id === "regras") renderRegras();
+  if (id === "atividades") {                    // abriu a aba: o que era novo vira "visto" e brilha por um instante
+    const novas = atividadesNovas();
+    estado.vistoNiveis = { ...estado.niveisAtuais };
+    atualizarSelosNovidade();
+    if (novas.length) setTimeout(() => brilhar(novas.map(i => document.querySelector(`#cards [data-id="${i}"]`))), 120);
+  } else atualizarSelosNovidade();
   if (id === "agenda" && typeof iniciarAgenda === "function") iniciarAgenda();   // agenda.js
   fecharMenu();
   window.scrollTo({ top: 0 });
@@ -2008,7 +2044,11 @@ function iniciar() {
   $("nav-scrim").addEventListener("click", fecharMenu);
   $("btn-sino").addEventListener("click", () => {
     irParaAba("visao");
-    setTimeout(() => $("alertas").scrollIntoView({ behavior: "smooth", block: "center" }), 60);
+    estado.alertasVistos = estado.alertasSig; atualizarSelosNovidade();
+    setTimeout(() => {
+      $("alertas").scrollIntoView({ behavior: "smooth", block: "center" });
+      brilhar($("alertas").querySelectorAll('li[data-pendente="1"]'));     // o que foi notificado brilha
+    }, 80);
   });
   document.querySelectorAll("#periodos button").forEach(b => b.addEventListener("click", () => {
     document.querySelectorAll("#periodos button").forEach(x => x.classList.remove("active"));
@@ -2028,9 +2068,17 @@ function iniciar() {
   $("tg-chat").value = TG.chat();
   $("tg-auto").checked = TG.auto();
   $("btn-tg-salvar").addEventListener("click", () => {
-    localStorage.setItem("tg_token", $("tg-token").value.trim());
-    localStorage.setItem("tg_chat", $("tg-chat").value.trim());
+    const token = $("tg-token").value.trim(), chat = $("tg-chat").value.trim();
+    if (!/^\d{6,12}:[A-Za-z0-9_-]{30,}$/.test(token)) return statusTg("O token não parece certo. Ele tem o formato 123456789:ABC… (copie inteiro do @BotFather).", true);
+    if (!/^(-?\d{5,}|@[A-Za-z]\w{4,})$/.test(chat)) return statusTg("O chat id não parece certo. Grupos têm um número negativo, como -1001234567890.", true);
+    localStorage.setItem("tg_token", token);
+    localStorage.setItem("tg_chat", chat);
     statusTg("Configuração salva neste navegador.", false);
+  });
+  $("btn-tg-remover").addEventListener("click", () => {
+    ["tg_token", "tg_chat", "tg_auto"].forEach(k => localStorage.removeItem(k));
+    $("tg-token").value = ""; $("tg-chat").value = ""; $("tg-auto").checked = false;
+    statusTg("Configuração do Telegram removida deste navegador.", false);
   });
   $("tg-auto").addEventListener("change", e => localStorage.setItem("tg_auto", e.target.checked ? "1" : "0"));
   $("btn-telegram").addEventListener("click", async () => {

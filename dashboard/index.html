@@ -355,17 +355,6 @@
         </div>
         <section class="rule-list" id="cards"></section>
 
-        <details class="tg-config">
-          <summary>Configurar o envio pelo Telegram</summary>
-          <p class="steps">1) No Telegram, converse com o @BotFather, use /newbot e copie o token. 2) Crie um grupo e adicione o bot. 3) Mande uma mensagem no grupo e abra
-            https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates para ver o chat id (número negativo). O token fica só neste navegador. Use um bot só da demonstração e revogue depois.</p>
-          <div class="tg-fields">
-            <label>Token do bot<input type="password" id="tg-token" placeholder="123456:ABC..." autocomplete="off"></label>
-            <label>Chat id do grupo<input type="text" id="tg-chat" placeholder="-1001234567890" autocomplete="off"></label>
-            <button class="btn-sm solid" id="btn-tg-salvar" style="height:38px">Salvar</button>
-          </div>
-          <label class="tg-auto"><input type="checkbox" id="tg-auto"> Enviar automaticamente quando o nível de uma atividade mudar</label>
-        </details>
         <p class="muted-note" id="tg-status"></p>
 
         <div class="rules-note" style="margin-top:18px">
@@ -479,6 +468,22 @@
           <svg class="i" data-i="shield" data-size="22"></svg>
           <div><strong>Quem pode alterar?</strong><p>Os critérios padrão são exemplos. Quem tem conta pode ajustar os limites e criar atividades novas para a realidade do local; as mudanças valem só para a própria conta. O ideal é validar os limites com um professor, técnico agrícola ou agrônomo. O sistema é apoio à decisão e não substitui o julgamento do responsável nem alertas oficiais.</p></div>
         </div>
+
+        <details class="tg-config discreto oculto" id="tg-avancado">
+          <summary>Avançado: envio automático pelo Telegram</summary>
+          <p class="aviso-avancado">Só para o responsável técnico. Um token ou chat id errado faz os avisos irem para o lugar errado ou não saírem. Se não tiver certeza, deixe em branco.</p>
+          <p class="steps">1) No Telegram, converse com o @BotFather, use /newbot e copie o token. 2) Crie um grupo e adicione o bot. 3) Mande uma mensagem no grupo e abra
+            https://api.telegram.org/bot&lt;TOKEN&gt;/getUpdates para ver o chat id (número negativo). O token fica só neste navegador e é apagado quando você sai da conta. Use um bot só da demonstração e revogue depois.</p>
+          <div class="tg-fields">
+            <label>Token do bot<input type="password" id="tg-token" placeholder="123456:ABC..." autocomplete="off"></label>
+            <label>Chat id do grupo<input type="text" id="tg-chat" placeholder="-1001234567890" autocomplete="off"></label>
+            <button type="button" class="btn-sm solid" id="btn-tg-salvar" style="height:38px">Salvar</button>
+          </div>
+          <label class="tg-auto"><input type="checkbox" id="tg-auto"> Enviar automaticamente quando o nível de uma atividade mudar</label>
+          <p class="muted-note"><button type="button" class="btn-sm" id="btn-tg-remover">Remover configuração</button></p>
+          <p class="muted-note" id="tg-status2"></p>
+        </details>
+
       </section>
 
     </main>

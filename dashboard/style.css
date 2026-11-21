@@ -2005,3 +2005,20 @@ dialog.auth-dialog[open] { animation: fadeIn 0.2s; }
 .chip-x { font-size: 15px; line-height: 1; padding: 0 2px; color: var(--green-dark); }
 .ativ-add { display: flex; gap: 8px; margin-top: 10px; }
 .ativ-add input { flex: 1; min-width: 0; min-height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; font-size: 13px; }
+
+/* novidade notificada: o item brilha por alguns segundos */
+@keyframes brilho-pulso {
+  0%, 100% { box-shadow: 0 0 0 0 #377c7000; background-color: inherit; }
+  25%, 75% { box-shadow: 0 0 0 4px #377c7055, 0 0 22px 4px #5fb7a477; }
+  50% { box-shadow: 0 0 0 2px #377c70aa, 0 0 30px 8px #5fb7a499; }
+}
+.brilho { animation: brilho-pulso 1.4s ease-in-out 3; border-radius: 12px; position: relative; z-index: 1; }
+.alert-item.clicavel { cursor: pointer; }
+.alert-item.clicavel:hover strong { color: var(--green); }
+@media (prefers-reduced-motion: reduce) { .brilho { animation: none; outline: 3px solid #5fb7a4; outline-offset: 2px; } }
+.tg-config.discreto { margin-top: 26px; background: transparent; border-style: dashed; padding: 10px 16px; }
+.tg-config.discreto summary { color: var(--muted); font-weight: 600; font-size: 11px; }
+.aviso-avancado { margin: 10px 0 0; padding: 9px 12px; border-radius: 9px; background: #fbf3e4; color: #7a5a14; font-size: 11px; line-height: 1.5; }
+
+.mudo { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
+.mudo.erro { color: #b3402a; font-weight: 600; }
