@@ -24,7 +24,7 @@ As opções (estações, coordenadas, margens) ficam em CONFIG, no início de da
 
 ## Agenda de atividades
 
-A aba Agenda (dashboard/agenda.js) importa uma planilha .xlsx, .xls ou .csv (Data, Atividade, Responsável) ou aceita dados colados, cruza cada data com a previsão de 15 dias da Open-Meteo usando as regras da atividade (ou só a chuva, se a atividade não existir na conta), salva os dias nas atividades da conta (Firebase) e avisa no Telegram. Os limites do critério só de chuva ficam em RISCO, no início do agenda.js.
+A aba Agenda (dashboard/agenda.js) importa uma planilha .xlsx, .xls ou .csv (Data, Atividade, Responsável e, opcional, Regra) ou aceita dados colados. A coluna **Regra aplicada** liga cada evento a uma atividade da conta (lista suspensa; quando o nome do evento é igual ao de uma atividade, a regra é preenchida sozinha). A análise cruza cada data com a previsão de 15 dias da Open-Meteo usando os critérios da regra escolhida (sem regra, só a chuva é avaliada). A tabela é guardada sozinha no navegador e volta ao atualizar a página; "Salvar agenda" grava a tabela inteira em `/usuarios/{uid}/agenda` e os dias nas atividades da conta (Firebase), e o Telegram avisa os riscos. Os limites do critério só de chuva ficam em RISCO, no início do agenda.js.
 
 ## Publicar no Vercel (sem expor chaves)
 
@@ -57,4 +57,4 @@ Configure as regras de segurança do Realtime Database; não deixe o banco abert
 O token do bot do Telegram fica só no navegador de quem o configura. Use um bot de demonstração.
 Os limites das regras de atividades são exemplos e devem ser validados por professores e técnicos da área.
 
-Atividades e agenda: a conta nova começa sem atividades. No cadastro (e depois na aba Regras) a pessoa ativa as atividades recomendadas, cujos critérios são copiados para a conta e podem ser editados, ou cria as suas. É preciso ter pelo menos uma. Cada atividade tem um calendário para marcar os dias agendados do mês. A aba Agenda cruza esses dias com a previsão diária da Open-Meteo (até 15 dias) usando os critérios (Adiar, Atenção, Liberado) da própria atividade; a planilha importada é distribuída pelas atividades pelo nome. Critérios da estação (chance da estação e queda de pressão) não se aplicam a dias futuros.g
+Atividades e agenda: a conta nova começa sem atividades. No cadastro (e depois na aba Regras) a pessoa ativa as atividades recomendadas, cujos critérios são copiados para a conta e podem ser editados, ou cria as suas. É preciso ter pelo menos uma. Cada atividade tem um calendário para marcar os dias agendados do mês. A aba Agenda cruza esses dias com a previsão diária da Open-Meteo (até 15 dias) usando os critérios (Adiar, Atenção, Liberado) da própria atividade; a planilha importada é distribuída pelas atividades pela coluna Regra aplicada (ou, sem ela, pelo nome do evento). Critérios da estação (chance da estação e queda de pressão) não se aplicam a dias futuros.g 

@@ -11,8 +11,13 @@
      de trabalho: "Salvar agenda" distribui as linhas pelas atividades pelo nome e a análise
      usa os critérios (Adiar / Atenção / Liberado) da atividade de cada linha.
 
+   Cada linha tem 4 colunas: Data, Atividade (nome do evento, livre), Responsável e Regra aplicada
+   (a atividade da conta cujos critérios valem para o evento). Sem regra escolhida, vale o nome do
+   evento se for igual ao de uma atividade; senão só a chuva é avaliada.
+   A tabela é guardada sozinha no navegador (rascunho) e, ao salvar, também na conta.
+
    Parte 1: window.Agenda.lerTabela()
-   -> [{ linha, dataISO, dataBR, atividade, responsavel, erros: [] }]
+   -> [{ linha, dataISO, dataBR, atividade, responsavel, regra, erros: [] }]
    Parte 2: window.Agenda.analisar() cruza cada data com a previsão da
    Open-Meteo e guarda o resultado em window.Agenda.resultado
    -> [{ ...linha, risco, motivo, previsao }]   (risco: alto | moderado | baixo | sem-previsao | passada | invalida)
@@ -25,6 +30,8 @@
   const LIMITE_LINHAS = 500;               // máximo de agendamentos importados
   const LIMITE_BYTES = 2 * 1024 * 1024;    // máximo de 2 MB por arquivo
   const LINHAS_MINIMAS = 12;               // linhas vazias na tela, para colar à vontade
+  const COLUNAS = 4;                       // Data, Atividade (evento), Responsável, Regra aplicada
+  const CHAVE_RASCUNHO = "agenda_rascunho"; // tabela em edição, guardada neste navegador
   const LIBS = {
     sheetjs: "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
     jsuitesJs: "https://cdn.jsdelivr.net/npm/jsuites@5/dist/jsuites.js",
@@ -44,6 +51,8 @@
   let planilha = null;      // instância do Jspreadsheet
   let resultado = [];       // última análise (Parte 2)
   let montando = null;      // promessa da montagem (evita montar duas vezes)
+  let restaurando = null;   // promessa da restauração da tabela (evita restaurar duas vezes)
+  let timerRascunho = null;
 
   /* ---------- 1) carregamento das bibliotecas ---------- */
   const _cache = {};
@@ -143,11 +152,15 @@
   /* Procura o cabeçalho (Data, Atividade, Responsável) nas 10 primeiras linhas.
      Sem cabeçalho, usa as 3 primeiras colunas nessa ordem. */
   function matrizParaLinhas(matriz) {
-    let idx = { data: 0, atividade: 1, responsavel: 2 }, inicio = 0, achou = false;
+    let idx = { data: 0, atividade: 1, responsavel: 2, regra: 3 }, inicio = 0, achou = false;
     for (let i = 0; i < Math.min(matriz.length, 10); i++) {
       const nomes = matriz[i].map(semAcento);
       const d = nomes.indexOf("data"), a = nomes.indexOf("atividade");
-      if (d >= 0 && a >= 0) { idx = { data: d, atividade: a, responsavel: nomes.indexOf("responsavel") }; inicio = i + 1; achou = true; break; }
+      if (d >= 0 && a >= 0) {
+        // "Regra", "Regra aplicada", "Atividade associada"...: coluna opcional com a atividade cujos critérios valem
+        const rg = nomes.findIndex(n => n.startsWith("regra") || n === "atividade associada");
+        idx = { data: d, atividade: a, responsavel: nomes.indexOf("responsavel"), regra: rg }; inicio = i + 1; achou = true; break;
+      }
     }
     const linhas = [];
     let cortou = false;
@@ -155,13 +168,14 @@
       const r = matriz[i];
       const bruto = r[idx.data];
       const iso = normalizarData(bruto);
-      const linha = [iso ? isoParaBR(iso) : limpar(bruto), limpar(r[idx.atividade]), idx.responsavel >= 0 ? limpar(r[idx.responsavel]) : ""];
+      const linha = [iso ? isoParaBR(iso) : limpar(bruto), limpar(r[idx.atividade]), idx.responsavel >= 0 ? limpar(r[idx.responsavel]) : "",
+                     idx.regra >= 0 ? limpar(r[idx.regra]) : ""];
       if (!linha[0] && !linha[1] && !linha[2]) continue;
       if (linhas.length >= LIMITE_LINHAS) { cortou = true; break; }
       linhas.push(linha);
     }
     const avisos = [];
-    if (!achou) avisos.push("Não achei o cabeçalho; usei as 3 primeiras colunas como Data, Atividade e Responsável.");
+    if (!achou) avisos.push("Não achei o cabeçalho; usei as 4 primeiras colunas como Data, Atividade, Responsável e Regra.");
     if (cortou) avisos.push(`Só as primeiras ${LIMITE_LINHAS} linhas foram importadas.`);
     return { linhas, avisos };
   }
@@ -190,16 +204,17 @@
         planilha = window.jspreadsheet(document.getElementById("agenda-grid"), {
           data: linhasVazias(LINHAS_MINIMAS),
           columns: [
-            { type: "text", title: "Data (dd/mm/aaaa)", width: 150 },
-            { type: "text", title: "Atividade", width: 320 },
-            { type: "text", title: "Responsável", width: 200 }
+            { type: "text", title: "Data (dd/mm/aaaa)", width: 130 },
+            { type: "text", title: "Atividade (evento)", width: 250 },
+            { type: "text", title: "Responsável", width: 160 },
+            { type: "dropdown", title: "Regra aplicada", width: 220, source: nomesDasRegras(), autocomplete: true }
           ],
-          minDimensions: [3, LINHAS_MINIMAS],
+          minDimensions: [COLUNAS, LINHAS_MINIMAS],
           allowInsertColumn: false, allowDeleteColumn: false, allowRenameColumn: false, allowManualInsertColumn: false,
           tableOverflow: true, tableWidth: "100%", tableHeight: "380px",
-          onafterchanges: () => { esconderResultado(); setTimeout(atualizarResumo, 0); },
-          oninsertrow: () => { esconderResultado(); setTimeout(atualizarResumo, 0); },
-          ondeleterow: () => { esconderResultado(); setTimeout(atualizarResumo, 0); }
+          onafterchanges: (el, registros) => { aoEditar(registros); },
+          oninsertrow: () => aoEditar(),
+          ondeleterow: () => aoEditar()
         });
         atualizarResumo();
         return planilha;
@@ -208,16 +223,88 @@
     return montando;
   }
 
-  const linhasVazias = n => Array.from({ length: n }, () => ["", "", ""]);
+  const linhasVazias = n => Array.from({ length: n }, () => Array(COLUNAS).fill(""));
+
+  /* Nomes das atividades da conta: são as opções da coluna "Regra aplicada" */
+  function nomesDasRegras() {
+    return atividadesDaConta().map(a => limpar(a.nome)).filter(Boolean).sort((x, y) => x.localeCompare(y, "pt-BR"));
+  }
+  /* Atualiza a lista de opções (a conta pode ter mudado: login, atividade nova na aba Regras) */
+  function atualizarOpcoesRegra() {
+    try { if (planilha && planilha.options.columns[3]) planilha.options.columns[3].source = nomesDasRegras(); } catch (e) { /* a lista é só um apoio */ }
+  }
+
+  /* Atividade da conta que vale para a linha: a escolhida em "Regra aplicada"; sem escolha, a de mesmo nome do evento */
+  function acharAtividade(regra, evento, porNome) {
+    return porNome.get(semAcento(regra)) || (regra ? null : porNome.get(semAcento(evento))) || null;
+  }
+  const mapaAtividades = atividades => new Map((atividades || []).map(a => [semAcento(a.nome), a]));
+
+  /* Preenche "Regra aplicada" quando o nome do evento é igual ao de uma atividade da conta (só igualdade exata) */
+  function associarPeloNome(linhas) {
+    const porNome = mapaAtividades(atividadesDaConta());
+    let n = 0;
+    linhas.forEach(l => {
+      if (l[3] || !l[1]) return;
+      const a = porNome.get(semAcento(l[1]));
+      if (a) { l[3] = limpar(a.nome); n++; }
+    });
+    return n;
+  }
 
   /* Coloca as linhas na tabela (completa com linhas vazias para dar espaço de colar) */
-  function carregarLinhas(linhas) {
+  function carregarLinhas(linhas, opcoes) {
     if (!planilha) return;
-    const dados = linhas.slice();
-    while (dados.length < LINHAS_MINIMAS) dados.push(["", "", ""]);
+    const dados = linhas.map(l => { const c = l.slice(0, COLUNAS); while (c.length < COLUNAS) c.push(""); return c; });
+    while (dados.length < LINHAS_MINIMAS) dados.push(Array(COLUNAS).fill(""));
+    atualizarOpcoesRegra();
     planilha.setData(dados);
     esconderResultado();
     atualizarResumo();
+    if (!(opcoes && opcoes.semRascunho)) guardarRascunho();
+  }
+
+  /* Depois de qualquer edição: some o resultado antigo, refaz o resumo e guarda o rascunho */
+  function aoEditar(registros) {
+    esconderResultado();
+    // digitou o nome do evento e a regra está vazia: se o nome for de uma atividade da conta, já associa
+    if (Array.isArray(registros) && planilha) {
+      const porNome = mapaAtividades(atividadesDaConta());
+      registros.forEach(r => {
+        if (!r || Number(r.x) !== 1 || !r.value) return;
+        const y = Number(r.y);
+        const atual = planilha.getValueFromCoords(3, y);
+        const a = porNome.get(semAcento(r.value));
+        if (a && !limpar(atual)) planilha.setValueFromCoords(3, y, limpar(a.nome), true);
+      });
+    }
+    setTimeout(atualizarResumo, 0);
+    guardarRascunho();
+  }
+
+  /* ---------- rascunho: a tabela sobrevive a atualizar a página ---------- */
+  const donoAtual = () => (typeof estado !== "undefined" && estado.conta) ? "c:" + (estado.conta.uid || estado.conta.email || "local") : "v";
+  function linhasBrutas() {
+    return (planilha ? planilha.getData() : []).map(r => [0, 1, 2, 3].map(i => limpar(r[i]))).filter(r => r.some(Boolean));
+  }
+  function guardarRascunho() {
+    clearTimeout(timerRascunho);
+    timerRascunho = setTimeout(() => {
+      try {
+        const linhas = linhasBrutas();
+        if (!linhas.length) localStorage.removeItem(CHAVE_RASCUNHO);
+        else localStorage.setItem(CHAVE_RASCUNHO, JSON.stringify({ dono: donoAtual(), t: Date.now(), linhas }));
+      } catch (e) { /* sem espaço ou sem acesso: a tabela continua funcionando */ }
+    }, 300);
+  }
+  function lerRascunho() {
+    try {
+      const r = JSON.parse(localStorage.getItem(CHAVE_RASCUNHO) || "null");
+      if (!r || !Array.isArray(r.linhas) || !r.linhas.length) return null;
+      // rascunho de visitante vale para quem entrou depois; de outra conta, não
+      if (r.dono !== donoAtual() && r.dono !== "v") return null;
+      return r;
+    } catch (e) { return null; }
   }
 
   /* ---------- 5) extração dos dados (entrada da Parte 2) ---------- */
@@ -225,13 +312,13 @@
     const dados = planilha ? planilha.getData() : [];
     const linhas = [];
     dados.forEach((r, i) => {
-      const [d, a, p] = [r[0], r[1], r[2]].map(limpar);
-      if (!d && !a && !p) return;
+      const [d, a, p, g] = [r[0], r[1], r[2], r[3]].map(limpar);
+      if (!d && !a && !p && !g) return;
       const iso = normalizarData(d);
       const erros = [];
       if (!iso) erros.push("Data inválida ou vazia (use dd/mm/aaaa)");
       if (!a) erros.push("Atividade vazia");
-      linhas.push({ linha: i + 1, dataISO: iso, dataBR: iso ? isoParaBR(iso) : d, atividade: a, responsavel: p, erros });
+      linhas.push({ linha: i + 1, dataISO: iso, dataBR: iso ? isoParaBR(iso) : d, atividade: a, responsavel: p, regra: g, erros });
     });
     return linhas;
   }
@@ -301,7 +388,7 @@
 
   /* atividades: lista de atividades da conta ({ nome, regras }). Sem lista (visitante), vale só a chuva. */
   function analisarLinhas(linhas, previsao, atividades) {
-    const porNome = new Map((atividades || []).map(a => [semAcento(a.nome), a]));
+    const porNome = mapaAtividades(atividades);
     const dias = Object.keys(previsao).sort();
     const hoje = dias[0], ultimo = dias[dias.length - 1];
     const saida = linhas.map(l => {
@@ -309,10 +396,13 @@
       if (l.dataISO < hoje) return { ...l, risco: "passada", motivo: "A data já passou", previsao: null };
       const p = previsao[l.dataISO];
       if (!p) return { ...l, risco: "sem-previsao", motivo: `Fora do alcance da previsão (até ${isoParaBR(ultimo)})`, previsao: null };
-      const ativ = porNome.get(semAcento(l.atividade));
-      if (ativ) return { ...l, ...classificarPorRegras(ativ, p), previsao: p };
+      const ativ = acharAtividade(l.regra, l.atividade, porNome);
+      if (ativ) return { ...l, ...classificarPorRegras(ativ, p), regraNome: ativ.nome, previsao: p };
       const base = classificar(p);
-      return { ...l, ...base, motivo: porNome.size ? `${base.motivo} (atividade sem regras na conta; só a chuva foi avaliada)` : base.motivo, previsao: p };
+      const aviso = !porNome.size ? ""
+        : l.regra ? ` (regra "${l.regra}" não existe na conta; só a chuva foi avaliada)`
+        : " (sem regra associada; só a chuva foi avaliada)";
+      return { ...l, ...base, motivo: base.motivo + aviso, regraNome: "", previsao: p };
     });
     return saida.sort(   // por data; linhas inválidas por último
       (a, b) => (a.risco === "invalida") - (b.risco === "invalida") || (a.dataISO || "9").localeCompare(b.dataISO || "9") || a.linha - b.linha);
@@ -347,6 +437,7 @@
       celula(i.dataBR);
       celula(i.atividade || "(sem nome)");
       celula(i.responsavel || "-");
+      celula(i.regraNome || "-");
       const p = i.previsao;
       celula(p ? `${descreverTempo(p.codigo)}, ${Math.round(p.tmin)}° a ${Math.round(p.tmax)}°` : "-");
       celula(p ? `${p.prob == null ? "-" : Math.round(p.prob) + " %"} · ${(p.mm || 0).toFixed(1).replace(".", ",")} mm` : "-");
@@ -409,6 +500,7 @@
     const itens = {};
     lista.filter(i => i.risco !== "invalida").forEach((i, n) => {
       const item = { dataISO: i.dataISO, atividade: i.atividade, responsavel: i.responsavel, risco: i.risco, motivo: i.motivo };
+      if (i.regraNome) item.regra = i.regraNome;
       if (i.previsao && i.previsao.prob != null) item.prob = i.previsao.prob;
       if (i.previsao && i.previsao.mm != null) item.mm = i.previsao.mm;
       itens[`${i.dataISO}-${String(n + 1).padStart(3, "0")}`] = item;   // chaves sem ponto, barra ou espaço
@@ -471,11 +563,12 @@
     if (!linhas.length) throw new Error("Não há agendamentos válidos para salvar.");
     const regras = estado.conta.regras;
     const mapa = new Map(Object.entries(regras).map(([id, a]) => [semAcento(a.nome), id]));
+    const alvo = l => l.regra || l.atividade;                        // atividade da conta que recebe o dia
     const novos = [];
-    linhas.forEach(l => { const k = semAcento(l.atividade); if (!mapa.has(k) && !novos.some(n => semAcento(n) === k)) novos.push(l.atividade); });
+    linhas.forEach(l => { const k = semAcento(alvo(l)); if (!mapa.has(k) && !novos.some(n => semAcento(n) === k)) novos.push(alvo(l)); });
     if (novos.length) {
       if (!confirm(`Estas atividades ainda não existem na sua conta:\n- ${novos.join("\n- ")}\n\nCriar sem critérios? Você define as regras depois, na aba Regras.`))
-        throw new Error("Cadastre as atividades na aba Regras ou corrija os nomes na tabela.");
+        throw new Error("Cadastre as atividades na aba Regras ou escolha outra regra na tabela.");
       const perfil = estado.conta.perfis[0];
       novos.forEach((nome, i) => {
         const id = "x_" + Date.now().toString(36) + i;
@@ -484,23 +577,45 @@
       });
     }
     Object.values(regras).forEach(a => { a.dias = {}; });
-    linhas.forEach(l => { regras[mapa.get(semAcento(l.atividade))].dias[l.dataISO] = (l.responsavel || "").slice(0, 60); });
-    await contaSalvarRegras();                                       // script.js: Firebase (api/usuario) ou navegador (demonstração)
+    linhas.forEach(l => { regras[mapa.get(semAcento(alvo(l)))].dias[l.dataISO] = (l.responsavel || "").slice(0, 60); });
+    await contaSalvarRegras();
+    await gravarAgendaSalva(linhasBrutas());                         // a tabela inteira (evento + regra), para voltar igual
+    atualizarOpcoesRegra();
+    guardarRascunho();                                       // script.js: Firebase (api/usuario) ou navegador (demonstração)
     Object.keys(estado.rascunho).forEach(id => { if (regras[id]) estado.rascunho[id].dias = JSON.parse(JSON.stringify(regras[id].dias)); else delete estado.rascunho[id]; });
     if (typeof renderRegras === "function") renderRegras();
     return linhas.length;
   }
 
-  /* Linhas [data, atividade, responsável] com os dias agendados em todas as atividades da conta */
+  /* Linhas [data, atividade, responsável, regra] com os dias agendados em todas as atividades da conta */
   function diasDasAtividades() {
     if (typeof estado === "undefined" || !estado.conta) return [];
     const out = [];
     Object.values(estado.conta.regras).forEach(a => Object.entries(a.dias || {}).forEach(([iso, resp]) => out.push([iso, a.nome, resp || ""])));
-    return out.sort((x, y) => x[0].localeCompare(y[0]) || x[1].localeCompare(y[1])).map(([iso, nome, resp]) => [isoParaBR(iso), limpar(nome), limpar(resp)]);
+    return out.sort((x, y) => x[0].localeCompare(y[0]) || x[1].localeCompare(y[1])).map(([iso, nome, resp]) => [isoParaBR(iso), limpar(nome), limpar(resp), limpar(nome)]);
+  }
+
+  /* Tabela salva na conta: { atualizadoEm, linhas: [{ d, a, r, g }] } (data, evento, responsável, regra).
+     No modo demonstração fica no perfil local do navegador. */
+  async function gravarAgendaSalva(linhas) {
+    const registro = { atualizadoEm: Date.now(), linhas: linhas.slice(0, LIMITE_LINHAS).map(l => ({ d: l[0], a: l[1], r: l[2], g: l[3] })) };
+    if (modoLocal()) {
+      const c = lerContaLocal() || {};
+      c.agenda = registro;
+      localStorage.setItem("conta_local", JSON.stringify(c));
+    } else await dbUsuario("PUT", "/agenda", registro);          // script.js: api/usuario
+  }
+  async function lerAgendaSalva() {
+    let d = null;
+    if (modoLocal()) { const c = lerContaLocal(); d = c && c.agenda; }
+    else d = await dbUsuario("GET", "/agenda");
+    const itens = d && d.linhas ? (Array.isArray(d.linhas) ? d.linhas : Object.values(d.linhas)) : [];
+    return itens.filter(Boolean).map(i => [limpar(i.d), limpar(i.a), limpar(i.r), limpar(i.g)]);
   }
   async function carregarAgendaSalva() {
     if (typeof estado === "undefined" || !estado.conta) throw new Error("Entre na sua conta (botão Entrar) para carregar a agenda.");
-    return diasDasAtividades();
+    const salva = await lerAgendaSalva();
+    return salva.length ? salva : diasDasAtividades();               // sem tabela salva: usa os dias marcados nas atividades
   }
 
   /* ---------- 8) interface ---------- */
@@ -530,16 +645,23 @@
   function desenharResumo(el) {
     const linhas = lerTabela();
     const ruins = linhas.filter(l => l.erros.length);
+    const porNome = mapaAtividades(atividadesDaConta());
+    const semRegra = porNome.size ? linhas.filter(l => !l.erros.length && !acharAtividade(l.regra, l.atividade, porNome)) : [];   // visitante: sem atividades, não cobra regra
     // pinta de vermelho claro a célula da data inválida
     try {
       const dados = planilha.getData();
       const comErro = new Set(ruins.filter(l => !l.dataISO).map(l => l.linha));
-      for (let i = 0; i < dados.length; i++) planilha.setStyle("A" + (i + 1), "background-color", comErro.has(i + 1) ? "#fbe9e5" : "");
+      const semRegraLinhas = new Set(semRegra.map(l => l.linha));
+      for (let i = 0; i < dados.length; i++) {
+        planilha.setStyle("A" + (i + 1), "background-color", comErro.has(i + 1) ? "#fbe9e5" : "");
+        planilha.setStyle("D" + (i + 1), "background-color", semRegraLinhas.has(i + 1) ? "#fff6dd" : "");   // amarelo: falta escolher a regra
+      }
     } catch (e) { /* o estilo é só um detalhe visual */ }
     if (!linhas.length) { el.textContent = "Nenhum agendamento ainda."; el.className = "agenda-resumo"; return; }
-    el.className = "agenda-resumo" + (ruins.length ? " atencao" : "");
+    el.className = "agenda-resumo" + (ruins.length || semRegra.length ? " atencao" : "");
     el.textContent = `${linhas.length - ruins.length} de ${linhas.length} agendamentos válidos.`
-      + (ruins.length ? ` Corrija: ${ruins.slice(0, 5).map(l => `linha ${l.linha} (${l.erros[0].toLowerCase()})`).join("; ")}${ruins.length > 5 ? "…" : ""}.` : "");
+      + (ruins.length ? ` Corrija: ${ruins.slice(0, 5).map(l => `linha ${l.linha} (${l.erros[0].toLowerCase()})`).join("; ")}${ruins.length > 5 ? "…" : ""}.` : "")
+      + (semRegra.length ? ` ${semRegra.length} ${semRegra.length === 1 ? "linha está" : "linhas estão"} sem regra (coluna Regra aplicada): enquanto isso, só a chuva é avaliada.` : "");
   }
 
   async function importar(arquivo) {
@@ -548,8 +670,13 @@
       const { linhas, avisos } = await lerArquivo(arquivo);
       if (!linhas.length) throw new Error("Não encontrei nenhuma linha com dados nesse arquivo.");
       await montarPlanilha();
+      const auto = associarPeloNome(linhas);
       carregarLinhas(linhas);
-      status(`${linhas.length} linhas importadas de ${arquivo.name}. ${avisos.join(" ")}`.trim());
+      const resto = nomesDasRegras().length ? linhas.length - linhas.filter(l => l[3]).length : 0;
+      status(`${linhas.length} linhas importadas de ${arquivo.name}. `
+        + (auto ? `${auto} ligadas a uma regra pelo nome. ` : "")
+        + (resto ? `Escolha a regra das outras ${resto} na coluna "Regra aplicada". ` : "")
+        + avisos.join(" ").trim());
     } catch (e) {
       status(e.message, true);
     }
@@ -558,10 +685,10 @@
   function baixarModelo() {
     const dia = n => { const d = new Date(); d.setDate(d.getDate() + n); return `${doisDigitos(d.getDate())}/${doisDigitos(d.getMonth() + 1)}/${d.getFullYear()}`; };
     const csv = "\uFEFF" + [
-      "Data;Atividade;Responsável",
-      `${dia(1)};Aula de educação física;Prof. Marcos`,
-      `${dia(2)};Evento ao ar livre;Coordenação`,
-      `${dia(3)};Pulverização;Equipe de campo`
+      "Data;Atividade;Responsável;Regra (opcional)",
+      `${dia(1)};Aula de educação física;Prof. Marcos;`,
+      `${dia(2)};Evento ao ar livre;Coordenação;`,
+      `${dia(3)};Pulverização;Equipe de campo;`
     ].join("\r\n");
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
@@ -594,7 +721,7 @@
       acao("Buscando a agenda salva…");
       try {
         const linhas = await carregarAgendaSalva();
-        if (!linhas.length) return acao("Ainda não há dias agendados nas suas atividades. Marque-os na aba Regras ou salve a tabela.", true);
+        if (!linhas.length) return acao("Ainda não há agenda salva. Salve a tabela ou marque os dias na aba Regras.", true);
         await montarPlanilha();
         carregarLinhas(linhas);
         acao(`${linhas.length} agendamentos carregados das suas atividades. Clique em Analisar clima.`);
@@ -610,7 +737,7 @@
         else acao(r.motivo, true);
       } catch (e) { acao(e.message, true); }
     });
-    $("agenda-criterios").textContent = `Atividades da sua conta usam os critérios da aba Regras (Adiar, Atenção, Liberado), com a previsão diária: chance de chuva máxima, temperatura máxima, sensação máxima, umidade média e vento máximo. Critérios da estação (chance da estação e queda de pressão) não se aplicam a dias futuros. Linhas de atividades que não estão na conta (e visitantes) só avaliam a chuva: Adiar com chance ≥ ${RISCO.altoProb} % ou ≥ ${RISCO.altoMm} mm; Atenção com ≥ ${RISCO.modProb} % ou ≥ ${RISCO.modMm} mm.`;
+    $("agenda-criterios").textContent = `Atividades da sua conta usam os critérios da aba Regras (Adiar, Atenção, Liberado), com a previsão diária: chance de chuva máxima, temperatura máxima, sensação máxima, umidade média e vento máximo. Critérios da estação (chance da estação e queda de pressão) não se aplicam a dias futuros. Cada linha usa a atividade escolhida na coluna Regra aplicada; sem regra, só a chuva é avaliada (e vale o nome do evento se for igual ao de uma atividade). Visitantes só avaliam a chuva: Adiar com chance ≥ ${RISCO.altoProb} % ou ≥ ${RISCO.altoMm} mm; Atenção com ≥ ${RISCO.modProb} % ou ≥ ${RISCO.modMm} mm.`;
     $("agenda-add").addEventListener("click", async () => {
       try { (await montarPlanilha()).insertRow(); } catch (e) { status(e.message, true); }
     });
@@ -625,11 +752,39 @@
     ligarEventos();
     try {
       await montarPlanilha();
-      if (typeof estado !== "undefined" && estado.conta && !lerTabela().length) {       // tabela vazia: traz os dias já agendados nas atividades
-        const linhas = diasDasAtividades();
-        if (linhas.length) { carregarLinhas(linhas); acao(`${linhas.length} agendamentos trazidos das suas atividades.`); }
-      }
+      atualizarOpcoesRegra();
+      await restaurarTabela();
     } catch (e) { status(e.message, true); }
+  }
+
+  /* Tabela vazia (página recém-aberta ou atualizada): traz o rascunho; sem rascunho, a agenda salva na conta;
+     sem ela, os dias marcados nas atividades. Nunca sobrescreve uma tabela que já tem linhas. */
+  function restaurarTabela() {
+    if (restaurando) return restaurando;
+    restaurando = (async () => {
+      if (!planilha || linhasBrutas().length) return;
+      const rascunho = lerRascunho();
+      if (rascunho) {
+        carregarLinhas(rascunho.linhas, { semRascunho: true });
+        acao(`${rascunho.linhas.length} ${rascunho.linhas.length === 1 ? "linha recuperada" : "linhas recuperadas"} da sua última edição.`);
+        return;
+      }
+      if (typeof estado === "undefined" || !estado.conta) return;
+      let linhas = [];
+      try { linhas = await lerAgendaSalva(); } catch (e) { /* sem rede ou sem permissão: tenta os dias das atividades */ }
+      if (!linhas.length) linhas = diasDasAtividades();
+      if (!linhas.length || linhasBrutas().length) return;
+      carregarLinhas(linhas);
+      acao(`${linhas.length} agendamentos carregados da sua conta.`);
+    })().finally(() => { restaurando = null; });
+    return restaurando;
+  }
+
+  /* Chamada quando a conta termina de carregar ou muda (restaurarConta e login, em script.js): a conta chega
+     depois da página, então a tabela pode ter aberto vazia. */
+  async function aoMudarConta() {
+    if (!planilha) return;                                            // aba ainda não aberta: iniciarAgenda faz isso
+    try { atualizarOpcoesRegra(); await restaurarTabela(); atualizarResumo(); } catch (e) { status(e.message, true); }
   }
 
   /* Ao sair da conta: esvazia a tabela e o resultado, sem tocar no Firebase */
@@ -639,7 +794,7 @@
     ["agenda-status", "agenda-analise-status", "agenda-acao-status"].forEach(id => { const e = document.getElementById(id); if (e) { e.textContent = ""; e.className = "agenda-status"; } });
   }
 
-  window.Agenda = { limparTela, normalizarData, isoParaBR, parseCSV, matrizParaLinhas, lerArquivo, lerTabela, carregarLinhas, montarPlanilha,
+  window.Agenda = { aoMudarConta, restaurarTabela, limparTela, normalizarData, isoParaBR, parseCSV, matrizParaLinhas, lerArquivo, lerTabela, carregarLinhas, montarPlanilha,
                     classificar, classificarPorRegras, varsDoDia, diasDasAtividades, analisarLinhas, buscarPrevisaoDiaria, analisar, resultado,
                     montarRegistro, montarMensagemRiscos, avisarRiscos, salvarAgenda, carregarAgendaSalva };
   window.iniciarAgenda = iniciarAgenda;

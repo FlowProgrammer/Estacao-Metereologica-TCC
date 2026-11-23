@@ -1457,7 +1457,7 @@ function contaSair() {
    Telegram, avisos já enviados) e limpa a tela (campos do Telegram, tabela da Agenda). Os dados da
    conta ficam no Firebase e voltam ao entrar de novo. No modo demonstração o perfil local é o
    "banco" e continua guardado; só deixa de estar ativo. */
-const CHAVES_DO_NAVEGADOR = ["sessao", "estacao", "tg_token", "tg_chat", "tg_auto", "agenda_tg_enviados", "agenda_tg_auto"];
+const CHAVES_DO_NAVEGADOR = ["sessao", "estacao", "tg_token", "tg_chat", "tg_auto", "agenda_tg_enviados", "agenda_tg_auto", "agenda_rascunho"];
 function limparDadosDoNavegador() {
   CHAVES_DO_NAVEGADOR.forEach(k => { try { localStorage.removeItem(k); } catch (e) { /* sem acesso: tudo bem */ } });
   estado.estacao = CONFIG.estacao; estado.leituras = [];
@@ -1474,6 +1474,7 @@ async function restaurarConta() {
     } else if (SESSAO.ler()) await carregarContaRemota();
   } catch (e) { SESSAO.limpar(); }
   renderTudo(); renderRegras();
+  if (window.Agenda && window.Agenda.aoMudarConta) window.Agenda.aoMudarConta();   // a conta chega depois da página: recupera a tabela da Agenda
 }
 
 /* ------------------------- edição das regras (qualquer conta) ------------------------- */
@@ -1960,6 +1961,7 @@ async function enviarModal() {
     estado.rascunho = {};
     cadastroAtiv.sel.clear(); cadastroAtiv.custom.length = 0;
     renderTudo(); renderRegras();
+    if (window.Agenda && window.Agenda.aoMudarConta) window.Agenda.aoMudarConta();
   } catch (e) { erro.textContent = e.message; }
   finally { $("c-enviar").disabled = false; }
 }

@@ -378,7 +378,7 @@
           <div class="agenda-topo">
             <div>
               <h2>1. Importar planilha</h2>
-              <p class="agenda-ajuda">Aceita .xlsx, .xls e .csv com as colunas <b>Data</b>, <b>Atividade</b> e <b>Responsável</b> (até 500 linhas e 2 MB).</p>
+              <p class="agenda-ajuda">Aceita .xlsx, .xls e .csv com as colunas <b>Data</b>, <b>Atividade</b> e <b>Responsável</b>, e, se quiser, <b>Regra</b> (o nome da atividade da sua conta cujos critérios valem para o evento). Até 500 linhas e 2 MB.</p>
             </div>
             <div class="agenda-botoes">
               <label class="primary-btn agenda-upload">Escolher arquivo
@@ -394,7 +394,7 @@
           <div class="agenda-topo">
             <div>
               <h2>2. Tabela de agendamentos</h2>
-              <p class="agenda-ajuda">Digite nas células ou cole (Ctrl+V) linhas copiadas do Excel ou do Google Planilhas. Use datas no formato dd/mm/aaaa.</p>
+              <p class="agenda-ajuda">Digite nas células ou cole (Ctrl+V) linhas copiadas do Excel ou do Google Planilhas. Use datas no formato dd/mm/aaaa. Em <b>Regra aplicada</b>, escolha a atividade da sua conta cujos critérios valem para o evento (célula amarela = falta escolher). A tabela fica guardada sozinha ao atualizar a página.</p>
             </div>
             <div class="agenda-botoes">
               <button class="outline-btn" id="agenda-add">Adicionar linha</button>
@@ -420,7 +420,7 @@
             <div class="agenda-faixa" id="agenda-faixa"></div>
             <div class="agenda-rolagem">
               <table class="agenda-tabela">
-                <thead><tr><th>Data</th><th>Atividade</th><th>Responsável</th><th>Previsão</th><th>Chuva</th><th>Risco</th></tr></thead>
+                <thead><tr><th>Data</th><th>Atividade</th><th>Responsável</th><th>Regra</th><th>Previsão</th><th>Chuva</th><th>Risco</th></tr></thead>
                 <tbody id="agenda-corpo"></tbody>
               </table>
             </div>
