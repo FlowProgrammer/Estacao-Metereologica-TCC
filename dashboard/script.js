@@ -1147,6 +1147,10 @@ function renderAtividades() {
 }
 
 const ICONE_NIVEL = ["🟢", "🟡", "🔴"];   // mesma ordem de NIVEIS: Liberado, Atenção, Adiar
+/* O link wa.me estraga emojis de 4 bytes (🟢 💧 📍...) no WhatsApp Desktop e no Web: viram "�".
+   Fora do celular o WhatsApp recebe uma versão com símbolos simples (✅ ⚠️ ⛔) e rótulos em texto. */
+const ICONE_NIVEL_SIMPLES = ["✅", "⚠️", "⛔"];
+const ehCelular = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 const escHtml = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 /* O Telegram usa HTML (<b>negrito</b>) e o WhatsApp usa *negrito*; os textos de usuário são escapados no Telegram */
 const FORMATO = {
@@ -1159,13 +1163,18 @@ function mensagemAviso(canal = "telegram") {
   const f = FORMATO[canal];
   const d = derivados();
   if (!d) return "ClimaSense: sem leituras no momento.";
-  const blocos = [
+  const simples = canal === "whatsapp" && !ehCelular();
+  const icone = n => (simples ? ICONE_NIVEL_SIMPLES : ICONE_NIVEL)[n];
+  const blocos = simples ? [
+    `${f.b("ClimaSense")}\n${f.esc(localAtivo().nome)} · ${hhmm(Date.now())}`,
+    `Temperatura: ${fmt(d.ult.t)} °C\nUmidade: ${fmt(d.ult.u, 0)} %\nPressão: ${fmt(d.ult.p)} hPa`
+  ] : [
     `🌤 ${f.b("ClimaSense")}\n📍 ${f.esc(localAtivo().nome)} · ${hhmm(Date.now())}`,
     `🌡 ${fmt(d.ult.t)} °C      💧 ${fmt(d.ult.u, 0)} %      🧭 ${fmt(d.ult.p)} hPa`
   ];
   for (const a of Object.values(atividadesAtivas())) {
     const r = avaliarAtividade(a, d.vars);
-    blocos.push(`${ICONE_NIVEL[r.nivel]} ${f.b(a.nome)}\n${NIVEIS[r.nivel]}` + (r.motivos.length ? ` · ${f.esc(r.motivos[0].texto)}` : ""));
+    blocos.push(`${icone(r.nivel)} ${f.b(a.nome)}\n${NIVEIS[r.nivel]}` + (r.motivos.length ? ` · ${f.esc(r.motivos[0].texto)}` : ""));
   }
   blocos.push(f.i("Apoio à decisão, não substitui o julgamento do responsável."));
   return blocos.join("\n\n");
