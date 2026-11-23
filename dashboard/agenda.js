@@ -754,7 +754,21 @@
       await montarPlanilha();
       atualizarOpcoesRegra();
       await restaurarTabela();
+      sincronizarDias();
     } catch (e) { status(e.message, true); }
+  }
+
+  /* Dias marcados no calendário de uma atividade (aba Regras) que ainda não estão na tabela entram como linhas novas.
+     Só acrescenta: não apaga linhas da tabela. Chamada sempre que a aba Agenda abre. */
+  function sincronizarDias() {
+    if (!planilha || typeof estado === "undefined" || !estado.conta) return 0;
+    const chave = (iso, nome) => iso + "|" + semAcento(nome);
+    const existentes = new Set(lerTabela().filter(l => l.dataISO).map(l => chave(l.dataISO, l.regra || l.atividade)));
+    const novas = diasDasAtividades().filter(l => !existentes.has(chave(normalizarData(l[0]), l[3])));
+    if (!novas.length) return 0;
+    carregarLinhas(linhasBrutas().concat(novas));
+    acao(`${novas.length} ${novas.length === 1 ? "dia marcado" : "dias marcados"} na aba Regras ${novas.length === 1 ? "foi adicionado" : "foram adicionados"} à tabela.`);
+    return novas.length;
   }
 
   /* Tabela vazia (página recém-aberta ou atualizada): traz o rascunho; sem rascunho, a agenda salva na conta;
@@ -784,7 +798,7 @@
      depois da página, então a tabela pode ter aberto vazia. */
   async function aoMudarConta() {
     if (!planilha) return;                                            // aba ainda não aberta: iniciarAgenda faz isso
-    try { atualizarOpcoesRegra(); await restaurarTabela(); atualizarResumo(); } catch (e) { status(e.message, true); }
+    try { atualizarOpcoesRegra(); await restaurarTabela(); sincronizarDias(); atualizarResumo(); } catch (e) { status(e.message, true); }
   }
 
   /* Ao sair da conta: esvazia a tabela e o resultado, sem tocar no Firebase */
@@ -794,7 +808,7 @@
     ["agenda-status", "agenda-analise-status", "agenda-acao-status"].forEach(id => { const e = document.getElementById(id); if (e) { e.textContent = ""; e.className = "agenda-status"; } });
   }
 
-  window.Agenda = { aoMudarConta, restaurarTabela, limparTela, normalizarData, isoParaBR, parseCSV, matrizParaLinhas, lerArquivo, lerTabela, carregarLinhas, montarPlanilha,
+  window.Agenda = { sincronizarDias, aoMudarConta, restaurarTabela, limparTela, normalizarData, isoParaBR, parseCSV, matrizParaLinhas, lerArquivo, lerTabela, carregarLinhas, montarPlanilha,
                     classificar, classificarPorRegras, varsDoDia, diasDasAtividades, analisarLinhas, buscarPrevisaoDiaria, analisar, resultado,
                     montarRegistro, montarMensagemRiscos, avisarRiscos, salvarAgenda, carregarAgendaSalva };
   window.iniciarAgenda = iniciarAgenda;
