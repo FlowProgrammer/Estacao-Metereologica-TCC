@@ -294,12 +294,18 @@ function gerarDemo() {
    fora dos gráficos e dos cálculos, e o dashboard avisa quantos foram ignorados. */
 const leituraValida = l => l.p >= 870 && l.p <= 1090 && l.t >= -20 && l.t <= 60 && l.u >= 0 && l.u <= 100;
 
+function motivoInvalida(l) {
+  if (!(l.p >= 870 && l.p <= 1090)) return `pressão ${l.p.toFixed(1).replace(".", ",")} hPa, fora de 870 a 1090`;
+  if (!(l.t >= -20 && l.t <= 60)) return `temperatura ${l.t.toFixed(1).replace(".", ",")} °C, fora de −20 a 60`;
+  return `umidade ${l.u.toFixed(0)} %, fora de 0 a 100`;
+}
+
 async function buscarLeituras() {
-  if (emDemo()) { estado.descartadas = 0; return gerarDemo(); }
+  if (emDemo()) { estado.descartadas = 0; estado.ignoradaRecente = null; return gerarDemo(); }
   const r = await fetch(`${CONFIG.api}/leituras?est=${encodeURIComponent(idEstacao())}&limite=${CONFIG.limiteLeituras}`);
   if (!r.ok) throw new Error("Servidor respondeu HTTP " + r.status);
   const obj = await r.json();
-  if (!obj) { estado.descartadas = 0; return []; }
+  if (!obj) { estado.descartadas = 0; estado.ignoradaRecente = null; return []; }
   const alt = Number(localAtivo().altitude);
   const todas = Object.entries(obj)
     .map(([k, v]) => ({ ts: Number(v.ts ?? k), t: Number(v.t), u: Number(v.u), pe: Number(v.pe), p: Number(v.p) }))
@@ -308,6 +314,9 @@ async function buscarLeituras() {
     .sort((a, b) => a.ts - b.ts);
   const validas = todas.filter(leituraValida);
   estado.descartadas = todas.length - validas.length;
+  // a leitura mais nova chegou, mas foi ignorada (valor impossível)? Guarda o motivo para o status explicar por que parece offline
+  const nova = todas[todas.length - 1], novaValida = validas[validas.length - 1];
+  estado.ignoradaRecente = nova && (!novaValida || nova.ts > novaValida.ts) ? { ts: nova.ts, motivo: motivoInvalida(nova) } : null;
   return validas;
 }
 
@@ -636,6 +645,10 @@ function renderStatus() {
     const limite = Math.max(30, intervalo * 3);
     const idade = Date.now() / 1000 - ult.ts;
     if (idade <= limite) { cls = "on"; dot = ""; msg = `Online, atualizada às ${hhmm(ult.ts * 1000)}`; titulo = "Estação online"; sub = `Atualizada ${haTempo(idade)}`; }
+    else if (estado.ignoradaRecente && Date.now() / 1000 - estado.ignoradaRecente.ts <= limite) {
+      // a estação está enviando, mas as leituras novas têm valor impossível e são descartadas
+      dot = "off"; msg = `Recebendo leituras, mas ignoradas: ${estado.ignoradaRecente.motivo}`; titulo = "Leituras ignoradas"; sub = "Valor impossível (veja o comando no monitor serial)";
+    }
     else { dot = "off"; msg = `Offline, última leitura às ${hhmm(ult.ts * 1000)}`; titulo = "Estação offline"; sub = `Última leitura ${haTempo(idade)}`; }
   }
   $("ponto").className = "ponto " + cls;
@@ -1148,8 +1161,8 @@ function renderAtividades() {
 
 const ICONE_NIVEL = ["🟢", "🟡", "🔴"];   // mesma ordem de NIVEIS: Liberado, Atenção, Adiar
 /* O link wa.me estraga emojis de 4 bytes (🟢 💧 📍...) no WhatsApp Desktop e no Web: viram "�".
-   Fora do celular o WhatsApp recebe uma versão com símbolos simples (✅ ⚠️ ⛔) e rótulos em texto. */
-const ICONE_NIVEL_SIMPLES = ["✅", "⚠️", "⛔"];
+   Fora do celular o WhatsApp recebe uma versão só com texto (o nível já vai escrito: Liberado, Atenção, Adiar). */
+const ICONE_NIVEL_SIMPLES = ["-", "-", "-"];   // sem emoji nenhum: até ✅ e ⚠️ saem como "�" no WhatsApp Desktop
 const ehCelular = () => /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || "");
 const escHtml = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 /* O Telegram usa HTML (<b>negrito</b>) e o WhatsApp usa *negrito*; os textos de usuário são escapados no Telegram */

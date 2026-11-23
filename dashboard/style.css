@@ -2022,3 +2022,8 @@ dialog.auth-dialog[open] { animation: fadeIn 0.2s; }
 
 .mudo { font-size: 11px; color: var(--muted); margin: 8px 0 0; }
 .mudo.erro { color: #b3402a; font-weight: 600; }
+/* Cartão com selo no canto (ex.: "Normal"): o texto de apoio não passa por baixo do selo */
+.metric-card:has(.metric-delta:not(:empty)) .metric-meta { padding-right: 62px; }
+@media (max-width: 580px) {
+  .metric-card:has(.metric-delta:not(:empty)) .metric-meta { padding-right: 0; }   /* o selo fica oculto no celular */
+}
