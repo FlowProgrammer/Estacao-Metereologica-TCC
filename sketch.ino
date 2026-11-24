@@ -284,9 +284,12 @@ void enviarLeitura() {
   float p = pressaoNivelDoMar(pe);
   unsigned long ts = (unsigned long)time(nullptr);
 
-  char json[200];
+  // "rx" = hora em que o Firebase recebeu a leitura (o servidor preenche {".sv":"timestamp"}, em ms).
+  // O dashboard usa "rx" para ordenar e para saber se a estação está online, então um relógio errado
+  // no ESP32 (o NTP do Wokwi às vezes atrasa) não faz a estação parecer offline.
+  char json[220];
   snprintf(json, sizeof(json),
-           "{\"ts\":%lu,\"t\":%.2f,\"u\":%.1f,\"pe\":%.2f,\"p\":%.2f}",
+           "{\"ts\":%lu,\"rx\":{\".sv\":\"timestamp\"},\"t\":%.2f,\"u\":%.1f,\"pe\":%.2f,\"p\":%.2f}",
            ts, t, u, pe, p);
   Serial.printf("T=%.1f C  U=%.0f %%  P=%.1f hPa (nivel do mar)\n", t, u, p);
 
