@@ -294,6 +294,9 @@ function gerarDemo() {
    fora dos gráficos e dos cálculos, e o dashboard avisa quantos foram ignorados. */
 const leituraValida = l => l.p >= 870 && l.p <= 1090 && l.t >= -20 && l.t <= 60 && l.u >= 0 && l.u <= 100;
 
+/* Segundos agora, pelo relógio do servidor: se o relógio do computador estiver errado, o status não sai errado junto */
+const agoraS = () => (Date.now() + (estado.desvioRelogio || 0)) / 1000;
+
 function motivoInvalida(l) {
   if (!(l.p >= 870 && l.p <= 1090)) return `pressão ${l.p.toFixed(1).replace(".", ",")} hPa, fora de 870 a 1090`;
   if (!(l.t >= -20 && l.t <= 60)) return `temperatura ${l.t.toFixed(1).replace(".", ",")} °C, fora de −20 a 60`;
@@ -304,11 +307,14 @@ async function buscarLeituras() {
   if (emDemo()) { estado.descartadas = 0; estado.ignoradaRecente = null; return gerarDemo(); }
   const r = await fetch(`${CONFIG.api}/leituras?est=${encodeURIComponent(idEstacao())}&limite=${CONFIG.limiteLeituras}`);
   if (!r.ok) throw new Error("Servidor respondeu HTTP " + r.status);
+  const dataServidor = Date.parse(r.headers.get("Date") || "");
+  estado.desvioRelogio = isFinite(dataServidor) && Math.abs(dataServidor - Date.now()) > 60000 ? dataServidor - Date.now() : 0;   // só corrige desvio grande (o cabeçalho tem precisão de 1 s)
   const obj = await r.json();
   if (!obj) { estado.descartadas = 0; estado.ignoradaRecente = null; return []; }
   const alt = Number(localAtivo().altitude);
   const todas = Object.entries(obj)
-    .map(([k, v]) => ({ ts: Number(v.ts ?? k), t: Number(v.t), u: Number(v.u), pe: Number(v.pe), p: Number(v.p) }))
+    // rx: hora em que o Firebase recebeu a leitura (confiável); sem ele, vale a hora do ESP32
+    .map(([k, v]) => ({ ts: typeof v.rx === "number" ? v.rx / 1000 : Number(v.ts ?? k), t: Number(v.t), u: Number(v.u), pe: Number(v.pe), p: Number(v.p) }))
     .map(l => (isFinite(alt) && isFinite(l.pe) && l.pe > 0 ? { ...l, p: pressaoNivelMar(l.pe, alt) } : l))   // usa a altitude do local ativo
     .filter(l => isFinite(l.ts) && isFinite(l.p) && isFinite(l.t) && isFinite(l.u))
     .sort((a, b) => a.ts - b.ts);
@@ -643,9 +649,9 @@ function renderStatus() {
     const deltas = L.slice(-6).slice(1).map((l, i) => l.ts - L.slice(-6)[i].ts).sort((a, b) => a - b);
     const intervalo = deltas.length ? deltas[Math.floor(deltas.length / 2)] : 60;
     const limite = Math.max(30, intervalo * 3);
-    const idade = Date.now() / 1000 - ult.ts;
+    const idade = agoraS() - ult.ts;
     if (idade <= limite) { cls = "on"; dot = ""; msg = `Online, atualizada às ${hhmm(ult.ts * 1000)}`; titulo = "Estação online"; sub = `Atualizada ${haTempo(idade)}`; }
-    else if (estado.ignoradaRecente && Date.now() / 1000 - estado.ignoradaRecente.ts <= limite) {
+    else if (estado.ignoradaRecente && agoraS() - estado.ignoradaRecente.ts <= limite) {
       // a estação está enviando, mas as leituras novas têm valor impossível e são descartadas
       dot = "off"; msg = `Recebendo leituras, mas ignoradas: ${estado.ignoradaRecente.motivo}`; titulo = "Leituras ignoradas"; sub = "Valor impossível (veja o comando no monitor serial)";
     }
@@ -1069,7 +1075,7 @@ function renderValidacao() {
         <span class="val-folga">${ok ? `${fmt(folga, 1)} ${d.un} abaixo do limite` : `Excedeu o limite em ${fmt(folga, 1)} ${d.un}`}</span></td>
     </tr>`;
   }).join("");
-  const idadeMin = Math.round((Date.now() / 1000 - ult.ts) / 60);
+  const idadeMin = Math.round((agoraS() - ult.ts) / 60);
   texto("val-sub", `Comparação entre a leitura da estação (${hhmm(ult.ts * 1000)}) e a observação da Open-Meteo (${hhmm(ref.ts * 1000)}). O desvio é a diferença absoluta entre as duas fontes.`
     + (idadeMin > 10 ? ` Atenção: a última leitura da estação tem ${idadeMin} min.` : ""));
   resumo.innerHTML = fora
